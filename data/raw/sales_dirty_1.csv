@@ -1,0 +1,11 @@
+id,date,product,price,quantity,store
+1,2023-01-01,Laptop,1200.50,1,Paris
+2,2023-01-02,Mouse,25.99,2,Lyon
+3,01/03/2023,Keyboard,-50.00,1,Marseille
+4,2023-01-04,Monitor,300.00,,Lille
+5,2023-01-05,Laptop,1200000.50,5000,Paris
+6,2023-01-06,USB Drive,15.50,5,
+7,2023-01-07,Mouse,abc,10,Bordeaux
+8,2023-01-08,Webcam,45.00,-2,Nantes
+9,2023-01-09,,80.00,1,Paris
+10,2023-01-10,Headset,null,1,Lyon

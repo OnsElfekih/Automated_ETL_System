@@ -2,6 +2,7 @@ import pandas as pd
 import numpy as np
 from sklearn.ensemble import IsolationForest
 from anomaly_classifier import AnomalyClassifier
+from ml_anomaly_detector import MLAnomalyDetector
 
 def detect_anomalies(df):
     """
@@ -40,21 +41,41 @@ def detect_anomalies(df):
     # If has_anomaly is True, it's an anomaly (-1), else normal (1)
     rule_based_pred = np.where(df['has_anomaly'], -1, 1)
     
-    # STEP 7: Ensemble voting with rule-based priority
+    # STEP 6.5: ML-based anomaly detection (RandomForest) ⭐ PHASE 2
+    ml_detector = MLAnomalyDetector()
+    ml_pred = None
+    ml_scores = None
+    
+    if ml_detector.is_loaded:
+        ml_pred, ml_scores = ml_detector.predict(df)
+        print(f"✅ ML anomaly detector loaded (Phase 2 enabled)")
+    else:
+        print(f"⚠️  ML anomaly detector not loaded (use train_ml_model.py to train)")
+    
+    # STEP 7: Ensemble voting with three detection methods
     # Rule 1: If anomaly_types is empty (no rule violations), classify as clean (données propres)
-    # Rule 2: Otherwise, use ensemble voting: if either source flags anomaly → anomaly
+    # Rule 2: Otherwise, use ensemble voting with rule-based, isolation forest, and ML
     
     # Check which rows have no anomaly_types (empty string)
     no_anomaly_types = (df['anomaly_types'] == '')
     
     # Ensemble voting (majority wins)
-    # -1 from either source = anomaly
-    # Only 1 from both sources = normal
-    ensemble_pred = np.where(
-        (isolation_pred == -1) | (rule_based_pred == -1),
-        -1,
-        1
-    )
+    # -1 from any source = anomaly
+    # Only 1 from all sources = normal
+    if ml_pred is not None:
+        # 3-way ensemble: rules + isolation forest + RandomForest
+        ensemble_pred = np.where(
+            (isolation_pred == -1) | (rule_based_pred == -1) | (ml_pred == -1),
+            -1,
+            1
+        )
+    else:
+        # 2-way ensemble: rules + isolation forest (fallback)
+        ensemble_pred = np.where(
+            (isolation_pred == -1) | (rule_based_pred == -1),
+            -1,
+            1
+        )
     
     # Apply rule: if no anomaly_types detected, override to clean (1)
     ensemble_pred = np.where(no_anomaly_types, 1, ensemble_pred)
@@ -64,11 +85,28 @@ def detect_anomalies(df):
     
     # Add confidence score (how many signals say it's anomalous)
     # For rows with no anomaly_types, confidence is 0 (données propres)
-    df["anomaly_confidence"] = np.where(
-        no_anomaly_types,
-        0,
-        (isolation_pred == -1).astype(int) + (rule_based_pred == -1).astype(int)
-    )
+    if ml_pred is not None:
+        # 3-way confidence (0-3 based on agreement of all three methods)
+        df["anomaly_confidence"] = np.where(
+            no_anomaly_types,
+            0,
+            (isolation_pred == -1).astype(int) + 
+            (rule_based_pred == -1).astype(int) + 
+            (ml_pred == -1).astype(int)
+        )
+        df["ml_anomaly_score"] = np.where(
+            ml_scores is not None,
+            ml_scores,
+            0
+        )
+    else:
+        # 2-way confidence (0-2 based on agreement of rules and isolation forest)
+        df["anomaly_confidence"] = np.where(
+            no_anomaly_types,
+            0,
+            (isolation_pred == -1).astype(int) + (rule_based_pred == -1).astype(int)
+        )
+        df["ml_anomaly_score"] = 0
     
     # SYNC: Ensure has_anomaly is consistent with final anomaly classification
     # If ensemble says it's an anomaly (-1), set has_anomaly to True; else False

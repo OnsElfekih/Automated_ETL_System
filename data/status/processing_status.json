@@ -1,0 +1,17 @@
+{
+  "status": "completed",
+  "file": "sales_dirty_4.csv",
+  "percent_complete": 100,
+  "elapsed_seconds": 0,
+  "estimated_remaining_seconds": 0,
+  "rows_per_second": 27,
+  "last_update": "2026-04-14T21:40:57.890866",
+  "current_step": "Saving Results",
+  "current_tier": "Step 7/7",
+  "total_rows": 242,
+  "anomalies_found": 242,
+  "anomaly_percentage": 100.0,
+  "llm_corrections": 0,
+  "total_time": 8.845991134643555,
+  "output_path": "data/processed/anomaly_detection.csv"
+}

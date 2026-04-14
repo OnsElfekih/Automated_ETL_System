@@ -468,71 +468,214 @@ class AdvancedAnomalyClassifier:
         # Email & phone validation patterns
         self.email_pattern = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
         self.phone_pattern = r'^\+?1?\d{9,15}$'  # Basic international format
+        
+        # Column mappings for different dataset types
+        self.column_mappings = {}
+        self.dataset_type = None  # 'sales' or 'retail'
+    
+    def _detect_dataset_type(self, df):
+        """Detect dataset type based on available columns"""
+        cols = set(df.columns)
+        
+        # Check for retail dataset (OnlineRetail pattern)
+        retail_indicators = {'InvoiceNo', 'StockCode', 'UnitPrice', 'Quantity'}
+        if retail_indicators.issubset(cols):
+            self.dataset_type = 'retail'
+            self._map_retail_columns(df)
+            return 'retail'
+        
+        # Check for sales dataset (default)
+        sales_indicators = {'price', 'quantity'}
+        if any(indicator in cols for indicator in sales_indicators):
+            self.dataset_type = 'sales'
+            return 'sales'
+        
+        # Unknown type, try to adapt
+        self.dataset_type = 'generic'
+        return 'generic'
+    
+    def _map_retail_columns(self, df):
+        """Map retail dataset columns to standard names"""
+        # Map OnlineRetail columns to standard names for processing
+        self.column_mappings = {
+            'UnitPrice': 'price',
+            'Quantity': 'quantity',
+            'InvoiceDate': 'date',
+            'InvoiceNo': 'order_id',
+            'StockCode': 'product_id',
+            'CustomerID': 'customer_id',
+            'Country': 'country'
+        }
+    
+    def _get_critical_fields(self, df):
+        """Get critical fields based on dataset type"""
+        cols = df.columns
+        critical = []
+        
+        # Check for price-like columns
+        for price_col in ['price', 'UnitPrice']:
+            if price_col in cols:
+                critical.append(price_col)
+                break
+        
+        # Check for quantity-like columns
+        for qty_col in ['quantity', 'Quantity']:
+            if qty_col in cols:
+                critical.append(qty_col)
+                break
+        
+        # Check for ID-like columns
+        for id_col in ['order_id', 'InvoiceNo']:
+            if id_col in cols:
+                critical.append(id_col)
+                break
+        
+        return critical if critical else ['price', 'quantity']
     
     def classify_anomalies(self, df):
         """
         Detect and classify all anomalies across 12 categories.
+        Supports multiple dataset types: sales, retail, generic
         """
+        import time
+        import json
+        import os
+        from pathlib import Path
+        
+        start_time = time.time()
         df = df.copy()
+        total_rows = len(df)
+        
+        # Status file handling
+        Path("data/status").mkdir(parents=True, exist_ok=True)
+        status_file = "data/status/processing_status.json"
+        
+        def update_tier_status(tier_num, tier_name):
+            """Update status file with current tier progress"""
+            try:
+                elapsed = time.time() - start_time
+                if os.path.exists(status_file):
+                    with open(status_file, 'r') as f:
+                        status = json.load(f)
+                else:
+                    status = {}
+                
+                status['current_tier'] = f'TIER {tier_num}/6 - {tier_name}'
+                status['elapsed_seconds'] = elapsed
+                status['last_update'] = datetime.now().isoformat()
+                
+                with open(status_file, 'w') as f:
+                    json.dump(status, f, indent=2)
+            except:
+                pass  # Silently fail if status file not writable
+        
+        print(f"\n📊 Starting anomaly detection on {total_rows:,} rows...")
+        print(f"   Dataset type: {self._detect_dataset_type(df).upper()}")
         
         # Initialize anomaly columns
         df['has_anomaly'] = False
         df['anomaly_types'] = ''
-        df['anomaly_flags'] = 0
+        df['anomaly_flags'] = 0.0  # Use float to allow partial flags (e.g., 0.5)
         df['anomaly_severity'] = 'low'  # low, medium, high, critical
         df['anomaly_score'] = 0  # 0-100 score
         
         # ========== TIER 1: CRITICAL CHECKS (do first) ==========
         
+        print(f"\n   [TIER 1/6] Running critical checks...")
+        update_tier_status(1, "Critical Checks")
         # 1. Missing / Incomplete Data
         df = self._check_missing_data(df)
+        print(f"      ✓ Missing data check")
         
         # 10. Data Type Issues
         df = self._check_data_type_issues(df)
+        print(f"      ✓ Data type check")
         
         # ========== TIER 2: DATA QUALITY CHECKS ==========
         
+        print(f"\n   [TIER 2/6] Running data quality checks...")
+        update_tier_status(2, "Data Quality Checks")
         # 2. Numeric Constraints
         df = self._check_numeric_constraints(df)
+        print(f"      ✓ Numeric constraints check")
         
         # 4. String / Format Validation
         df = self._check_string_format(df)
+        print(f"      ✓ String format check")
         
         # 3. Date & Time Issues
         df = self._check_date_issues(df)
+        print(f"      ✓ Date/time check")
         
         # 5. Categorical Data Issues
         df = self._check_categorical_issues(df)
+        print(f"      ✓ Categorical issues check")
         
         # 11. Consistency & Standardization
         df = self._check_consistency(df)
+        print(f"      ✓ Consistency check")
         
         # ========== TIER 3: LOGICAL & CROSS-COLUMN CHECKS ==========
         
+        print(f"\n   [TIER 3/6] Running logical & cross-column checks...")
+        update_tier_status(3, "Logical Checks")
         # 6. Business Logic Constraints ⭐ MOST IMPORTANT
         df = self._check_business_logic(df)
+        print(f"      ✓ Business logic check")
         
         # Product-Category Mapping Check
         df = self._check_product_category_match(df)
+        print(f"      ✓ Product-category mapping check")
         
         # 9. Cross-Column Anomalies
         df = self._check_cross_column_anomalies(df)
+        print(f"      ✓ Cross-column checks")
         
         # ========== TIER 4: DUPLICATE & OUTLIER CHECKS ==========
         
+        print(f"\n   [TIER 4/6] Running duplicate & outlier checks...")
+        update_tier_status(4, "Duplicate & Outlier Checks")
         # 7. Duplicate Data
         df = self._check_duplicates(df)
+        print(f"      ✓ Duplicate check")
         
         # 8. Outliers (ML + Rules)
         df = self._check_outliers(df)
+        print(f"      ✓ Outlier detection")
         
         # ========== TIER 5: ADVANCED CHECKS ==========
         
+        print(f"\n   [TIER 5/6] Running advanced pattern checks...")
+        update_tier_status(5, "Advanced Pattern Checks")
         # 12. Advanced (Seasonal, Fraud patterns)
         df = self._check_advanced_patterns(df)
+        print(f"      ✓ Advanced patterns check")
         
+        # ========== TIER 6: DATASET-SPECIFIC CHECKS ==========
+        
+        print(f"\n   [TIER 6/6] Running dataset-specific checks...")
+        update_tier_status(6, "Dataset-Specific Checks")
+        # Retail-specific anomalies (for OnlineRetail-like datasets)
+        if self.dataset_type == 'retail':
+            df = self._check_retail_anomalies(df)
+            print(f"      ✓ Retail-specific checks")
+        else:
+            print(f"      ✓ No dataset-specific rules needed")
+        
+        # ========== FINAL SCORING & SUMMARY ==========
+        
+        print(f"\n   [FINAL] Calculating anomaly scores...")
         # Calculate anomaly score
         df = self._calculate_anomaly_score(df)
+        
+        # Display summary
+        anomalies_found = df['has_anomaly'].sum()
+        anomaly_pct = (anomalies_found / len(df) * 100) if len(df) > 0 else 0
+        elapsed = time.time() - start_time
+        
+        print(f"\n✅ Anomaly detection complete in {elapsed:.2f}s")
+        print(f"   📊 Results: {anomalies_found:,}/{total_rows:,} rows flagged ({anomaly_pct:.1f}%)")
+        print(f"   ⏱️  Speed: {total_rows/elapsed:,.0f} rows/sec")
         
         return df
     
@@ -540,8 +683,8 @@ class AdvancedAnomalyClassifier:
     def _check_missing_data(self, df):
         """Check for null, empty, placeholder values"""
         
-        # Define critical fields that must have data
-        critical_fields = ['price', 'quantity']
+        # Define critical fields dynamically based on dataset type
+        critical_fields = self._get_critical_fields(df)
         
         # Check for NULL values
         for col in df.columns:
@@ -587,11 +730,12 @@ class AdvancedAnomalyClassifier:
     
     # ============ 2. NUMERIC CONSTRAINTS ============
     def _check_numeric_constraints(self, df):
-        """Check price, quantity, totals, discounts"""
+        """Check price, quantity, totals, discounts - handles multiple column naming patterns"""
         
-        # ===== PRICE =====
-        if 'price' in df.columns:
-            price = pd.to_numeric(df['price'], errors='coerce')
+        # ===== PRICE (handles 'price' or 'UnitPrice') =====
+        price_col = 'price' if 'price' in df.columns else ('UnitPrice' if 'UnitPrice' in df.columns else None)
+        if price_col:
+            price = pd.to_numeric(df[price_col], errors='coerce')
             
             # Negative price
             neg_price = (price < 0) & (price.notna())
@@ -619,16 +763,18 @@ class AdvancedAnomalyClassifier:
             df.loc[too_decimals, 'anomaly_types'] += 'price_too_many_decimals|'
             df.loc[too_decimals, 'has_anomaly'] = True
         
-        # ===== QUANTITY =====
-        if 'quantity' in df.columns:
-            qty = pd.to_numeric(df['quantity'], errors='coerce')
+        # ===== QUANTITY (handles 'quantity' or 'Quantity') =====
+        qty_col = 'quantity' if 'quantity' in df.columns else ('Quantity' if 'Quantity' in df.columns else None)
+        if qty_col:
+            qty = pd.to_numeric(df[qty_col], errors='coerce')
             
-            # Negative quantity
+            # Negative quantity (for sales, but allowed for retail returns)
             neg_qty = (qty < 0) & (qty.notna())
-            df.loc[neg_qty, 'anomaly_flags'] += 2
-            df.loc[neg_qty, 'anomaly_types'] += 'quantity_negative|'
-            df.loc[neg_qty, 'has_anomaly'] = True
-            df.loc[neg_qty, 'anomaly_severity'] = 'high'
+            if self.dataset_type != 'retail':  # Only flag as critical for non-retail
+                df.loc[neg_qty, 'anomaly_flags'] += 2
+                df.loc[neg_qty, 'anomaly_types'] += 'quantity_negative|'
+                df.loc[neg_qty, 'has_anomaly'] = True
+                df.loc[neg_qty, 'anomaly_severity'] = 'high'
             
             # Zero quantity (depending on context)
             zero_qty = (qty == 0) & (qty.notna())
@@ -663,12 +809,15 @@ class AdvancedAnomalyClassifier:
     
     # ============ 3. DATE & TIME ISSUES ============
     def _check_date_issues(self, df):
-        """Check date formats, ranges, relationships"""
+        """Check date formats, ranges, relationships - handles 'date' or 'InvoiceDate'"""
         
-        if 'date' in df.columns:
+        # Check for date columns (sales uses 'date', retail uses 'InvoiceDate')
+        date_col = 'date' if 'date' in df.columns else ('InvoiceDate' if 'InvoiceDate' in df.columns else None)
+        
+        if date_col:
             # Try to parse
-            parsed_dates = pd.to_datetime(df['date'], errors='coerce')
-            invalid_dates = parsed_dates.isnull() & (df['date'].notna())
+            parsed_dates = pd.to_datetime(df[date_col], errors='coerce')
+            invalid_dates = parsed_dates.isnull() & (df[date_col].notna())
             
             # Invalid date format
             df.loc[invalid_dates, 'anomaly_flags'] += 2
@@ -686,6 +835,7 @@ class AdvancedAnomalyClassifier:
             very_old = (datetime.now() - parsed_dates).dt.days > self.thresholds['max_date_gap_days']
             df.loc[very_old, 'anomaly_flags'] += 1
             df.loc[very_old, 'anomaly_types'] += 'date_very_old|'
+            df.loc[very_old, 'has_anomaly'] = True
             df.loc[very_old, 'has_anomaly'] = True
         
         # Check for date > shipping_date relationship
@@ -749,8 +899,9 @@ class AdvancedAnomalyClassifier:
                 
                 # Check for case inconsistency
                 has_mixed_case = df[col].astype(str).str.contains(r'[A-Z][a-z]|[a-z][A-Z]')
-                df.loc[has_mixed_case & (df[col].notna()), 'anomaly_flags'] += 0.5  # Low penalty
-                df.loc[has_mixed_case & (df[col].notna()), 'anomaly_types'] += f'{col}_case_inconsistent|'
+                mask = has_mixed_case & (df[col].notna())
+                df.loc[mask, 'anomaly_flags'] = df.loc[mask, 'anomaly_flags'].astype(float) + 0.5  # Low penalty
+                df.loc[mask, 'anomaly_types'] += f'{col}_case_inconsistent|'
         
         return df
     
@@ -952,8 +1103,9 @@ class AdvancedAnomalyClassifier:
             if col in exclude_cols:
                 continue
             has_spaces = df[col].astype(str).str.len() != df[col].astype(str).str.strip().str.len()
-            df.loc[has_spaces & (df[col].notna()), 'anomaly_flags'] += 0.5
-            df.loc[has_spaces & (df[col].notna()), 'anomaly_types'] += f'{col}_leading_trailing_spaces|'
+            mask = has_spaces & (df[col].notna())
+            df.loc[mask, 'anomaly_flags'] = df.loc[mask, 'anomaly_flags'].astype(float) + 0.5
+            df.loc[mask, 'anomaly_types'] += f'{col}_leading_trailing_spaces|'
         
         return df
     
@@ -993,6 +1145,135 @@ class AdvancedAnomalyClassifier:
         # Add severity weight
         df['severity_weight'] = df['anomaly_severity'].map(severity_map).fillna(0)
         df['anomaly_score'] = (df['anomaly_score'] + df['severity_weight']) / 2
+        
+        return df
+    
+    # ============ RETAIL-SPECIFIC ANOMALIES ============
+    def _check_retail_anomalies(self, df):
+        """Check for retail/e-commerce specific anomalies (OnlineRetail pattern)"""
+        
+        # ===== InvoiceNo validation =====
+        if 'InvoiceNo' in df.columns:
+            # Missing invoice number
+            missing_invoice = df['InvoiceNo'].isnull() | (df['InvoiceNo'].astype(str).str.strip() == '')
+            df.loc[missing_invoice, 'anomaly_flags'] += 2
+            df.loc[missing_invoice, 'anomaly_types'] += 'invoice_no_missing|'
+            df.loc[missing_invoice, 'has_anomaly'] = True
+            df.loc[missing_invoice, 'anomaly_severity'] = 'high'
+            
+            # Cancelled invoice (marked with 'C')
+            cancelled = df['InvoiceNo'].astype(str).str.startswith('C')
+            df.loc[cancelled, 'anomaly_flags'] += 1
+            df.loc[cancelled, 'anomaly_types'] += 'invoice_cancelled|'
+            df.loc[cancelled, 'has_anomaly'] = True
+            df.loc[cancelled, 'anomaly_severity'] = 'medium'
+        
+        # ===== Quantity validation for retail =====
+        if 'Quantity' in df.columns:
+            qty = pd.to_numeric(df['Quantity'], errors='coerce')
+            
+            # Negative quantity (returns)
+            neg_qty = (qty < 0) & (qty.notna())
+            df.loc[neg_qty, 'anomaly_flags'] += 1
+            df.loc[neg_qty, 'anomaly_types'] += 'quantity_negative_return|'
+            df.loc[neg_qty, 'has_anomaly'] = True
+            df.loc[neg_qty, 'anomaly_severity'] = 'medium'
+            
+            # Zero quantity
+            zero_qty = (qty == 0) & (qty.notna())
+            df.loc[zero_qty, 'anomaly_flags'] += 1
+            df.loc[zero_qty, 'anomaly_types'] += 'quantity_zero|'
+            df.loc[zero_qty, 'has_anomaly'] = True
+            
+            # Extremely large orders (potential bulk/wholesale)
+            high_qty = qty > (qty.quantile(0.95))
+            mask = high_qty & (qty.notna())
+            df.loc[mask, 'anomaly_flags'] = df.loc[mask, 'anomaly_flags'].astype(float) + 0.5
+            df.loc[mask, 'anomaly_types'] += 'quantity_unusually_high|'
+        
+        # ===== UnitPrice validation =====
+        if 'UnitPrice' in df.columns:
+            price = pd.to_numeric(df['UnitPrice'], errors='coerce')
+            
+            # Negative price
+            neg_price = (price < 0) & (price.notna())
+            df.loc[neg_price, 'anomaly_flags'] += 2
+            df.loc[neg_price, 'anomaly_types'] += 'unit_price_negative|'
+            df.loc[neg_price, 'has_anomaly'] = True
+            df.loc[neg_price, 'anomaly_severity'] = 'high'
+            
+            # Zero price
+            zero_price = (price == 0) & (price.notna())
+            df.loc[zero_price, 'anomaly_flags'] += 1
+            df.loc[zero_price, 'anomaly_types'] += 'unit_price_zero|'
+            df.loc[zero_price, 'has_anomaly'] = True
+            
+            # Suspiciously low price (potential discounting)
+            low_price = (price < (price.quantile(0.05))) & (price > 0) & (price.notna())
+            df.loc[low_price, 'anomaly_flags'] = df.loc[low_price, 'anomaly_flags'].astype(float) + 0.5
+            df.loc[low_price, 'anomaly_types'] += 'unit_price_unusually_low|'
+        
+        # ===== InvoiceDate validation =====
+        if 'InvoiceDate' in df.columns:
+            try:
+                parsed_dates = pd.to_datetime(df['InvoiceDate'], errors='coerce', format='%m/%d/%Y %H:%M')
+                invalid_dates = parsed_dates.isnull() & (df['InvoiceDate'].notna())
+                
+                if invalid_dates.any():
+                    df.loc[invalid_dates, 'anomaly_flags'] += 1
+                    df.loc[invalid_dates, 'anomaly_types'] += 'invoice_date_invalid|'
+                    df.loc[invalid_dates, 'has_anomaly'] = True
+                
+                # Future dates
+                future_dates = parsed_dates > pd.Timestamp.now()
+                df.loc[future_dates, 'anomaly_flags'] += 1
+                df.loc[future_dates, 'anomaly_types'] += 'invoice_date_future|'
+                df.loc[future_dates, 'has_anomaly'] = True
+            except:
+                pass
+        
+        # ===== Description validation =====
+        if 'Description' in df.columns:
+            # Missing description
+            missing_desc = df['Description'].isnull() | (df['Description'].astype(str).str.strip() == '')
+            df.loc[missing_desc, 'anomaly_flags'] += 1
+            df.loc[missing_desc, 'anomaly_types'] += 'description_missing|'
+            df.loc[missing_desc, 'has_anomaly'] = True
+        
+        # ===== Country validation =====
+        if 'Country' in df.columns:
+            # Missing country
+            missing_country = df['Country'].isnull() | (df['Country'].astype(str).str.strip() == '')
+            df.loc[missing_country, 'anomaly_flags'] += 1
+            df.loc[missing_country, 'anomaly_types'] += 'country_missing|'
+            df.loc[missing_country, 'has_anomaly'] = True
+        
+        # ===== StockCode validation =====
+        if 'StockCode' in df.columns:
+            # Missing stock code
+            missing_stock = df['StockCode'].isnull() | (df['StockCode'].astype(str).str.strip() == '')
+            df.loc[missing_stock, 'anomaly_flags'] += 1
+            df.loc[missing_stock, 'anomaly_types'] += 'stock_code_missing|'
+            df.loc[missing_stock, 'has_anomaly'] = True
+        
+        # ===== Price × Quantity calculation (for retail) =====
+        if all(col in df.columns for col in ['Quantity', 'UnitPrice']):
+            qty = pd.to_numeric(df['Quantity'], errors='coerce')
+            price = pd.to_numeric(df['UnitPrice'], errors='coerce')
+            
+            # Calculate expected total (handle negative quantities for returns)
+            expected_total = abs(qty) * price
+            
+            # Note: OnlineRetail dataset doesn't have a 'total' column by default
+            # This check is for completeness if a total column is added
+            if 'Total' in df.columns or 'total' in df.columns:
+                total_col = 'Total' if 'Total' in df.columns else 'total'
+                total = pd.to_numeric(df[total_col], errors='coerce')
+                
+                mismatch = (abs(total - expected_total) > 0.01) & (qty.notna()) & (price.notna())
+                df.loc[mismatch, 'anomaly_flags'] += 2
+                df.loc[mismatch, 'anomaly_types'] += 'total_calculation_mismatch|'
+                df.loc[mismatch, 'has_anomaly'] = True
         
         return df
     

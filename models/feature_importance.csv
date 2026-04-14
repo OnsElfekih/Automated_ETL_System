@@ -1,0 +1,11 @@
+feature,importance
+price_value,0.0
+price_is_zero,0.0
+price_is_negative,0.0
+quantity_value,0.0
+quantity_is_zero,0.0
+quantity_is_negative,0.0
+category_encoded,0.0
+price_qty_interaction,0.0
+price_per_unit_variance,0.0
+anomaly_flags,0.0

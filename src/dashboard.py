@@ -68,7 +68,7 @@ st.sidebar.divider()
 
 # ===== DATA PATH & RELOAD SECTION =====
 st.sidebar.subheader("📂 Data Path")
-data_path = st.sidebar.text_input("Chemin du fichier propre", "data/processed/clean.csv")
+data_path = st.sidebar.text_input("Chemin du fichier propre", "data/processed/anomaly_detection.csv")
 
 if st.sidebar.button("🔄 Recharger les données"):
     st.rerun()
@@ -152,13 +152,161 @@ if os.path.exists(data_path):
         col4.metric("✅ Normal", len(df) - anomalies)
 
     # Tabs for different views
-    tab1, tab2, tab3, tab4, tab5 = st.tabs(["📈 Aperçu", "🚨 Anomalies", "✅ Données Propres", "🔍 Détails", "📊 Statistiques"])
+    tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(["⏳ Processing Status", "📈 Aperçu", "🚨 Anomalies", "✅ Données Propres", "🔍 Détails", "📊 Statistiques"])
     
+    # ===== TAB 1: PROCESSING STATUS =====
     with tab1:
+        st.subheader("⏳ Processing Status Monitor")
+        
+        # Initialize session state for auto-refresh
+        if 'last_check' not in st.session_state:
+            st.session_state.last_check = 0
+        
+        # Read current processing status
+        status_file = "data/status/processing_status.json"
+        
+        if os.path.exists(status_file):
+            try:
+                with open(status_file, 'r') as f:
+                    status = json.load(f)
+                
+                current_status = status.get('status', 'idle')
+                
+                # Auto-refresh logic: refresh every 2 seconds if processing
+                if current_status == 'processing':
+                    import time
+                    st.session_state.last_check = time.time()
+                    # Add auto-refresh placeholder
+                    auto_refresh = st.empty()
+                    auto_refresh.success("🟢 Auto-refreshing every 2 seconds... (Live Updates Enabled)")
+                    # Schedule auto-refresh after rendering
+                    import streamlit as st_module
+                    time.sleep(2)
+                    st_module.rerun()
+                
+                # Auto-refresh button
+                col1, col2 = st.columns([3, 1])
+                with col2:
+                    if st.button("🔄 Manual Refresh", key="refresh_status"):
+                        st.rerun()
+                
+                # Display current file being processed
+                st.markdown(f"**📁 Current File:** `{status.get('file', 'N/A')}`")
+                st.markdown(f"**📊 Total Rows:** {status.get('total_rows', 'N/A'):,}")
+                
+                if current_status == 'processing':
+                    # Processing in progress
+                    st.success("🟢 LIVE UPDATES - Auto-refreshing in real-time")
+                    
+                    # Progress metrics
+                    col1, col2, col3, col4 = st.columns(4)
+                    with col1:
+                        st.metric("Step", status.get('current_step', 'N/A'))
+                    with col2:
+                        elapsed = status.get('elapsed_seconds', 0)
+                        st.metric("Elapsed", f"{elapsed:.1f}s")
+                    with col3:
+                        pct = status.get('percent_complete', 0)
+                        st.metric("Progress", f"{pct:.1f}%")
+                    with col4:
+                        est = status.get('estimated_remaining_seconds', 0)
+                        st.metric("Est. Remaining", f"{est:.1f}s")
+                    
+                    # Progress bar
+                    pct = status.get('percent_complete', 0)
+                    st.progress(min(pct / 100.0, 1.0))
+                    
+                    # Current tier/step details
+                    tier = status.get('current_tier', '')
+                    substep = status.get('current_substep', '')
+                    if tier:
+                        st.markdown(f"**Current Tier:** {tier}")
+                    if substep:
+                        st.markdown(f"**Substep:** {substep}")
+                    
+                    # Rows processed
+                    rows_processed = status.get('rows_processed', 0)
+                    st.markdown(f"**Rows Processed:** {rows_processed:,} / {status.get('total_rows', 'N/A'):,}")
+                    
+                    # Speed
+                    speed = status.get('rows_per_second', 0)
+                    if speed > 0:
+                        st.markdown(f"**Speed:** {speed:,.0f} rows/sec")
+                    
+                elif current_status == 'completed':
+                    # Processing completed
+                    st.success("✅ Processing Complete!")
+                    
+                    col1, col2, col3, col4 = st.columns(4)
+                    with col1:
+                        st.metric("Status", "Completed")
+                    with col2:
+                        total_time = status.get('total_time', 0)
+                        st.metric("Total Time", f"{total_time:.2f}s")
+                    with col3:
+                        anomalies = status.get('anomalies_found', 0)
+                        st.metric("Anomalies", f"{anomalies:,}")
+                    with col4:
+                        pct = status.get('anomaly_percentage', 0)
+                        st.metric("Anomaly %", f"{pct:.1f}%")
+                    
+                    st.info("Results are now available in other tabs! Click 'Refresh' to reload the data.")
+                    
+                    # Show completion summary
+                    st.markdown("### 📊 Completion Summary")
+                    summary_cols = st.columns(2)
+                    with summary_cols[0]:
+                        st.markdown(f"""
+**Pipeline Summary:**
+- Rows processed: {status.get('total_rows', 0):,}
+- Anomalies found: {status.get('anomalies_found', 0):,}
+- LLM corrections: {status.get('llm_corrections', 0)}
+- Total time: {status.get('total_time', 0):.2f}s
+""")
+                    with summary_cols[1]:
+                        st.markdown(f"""
+**Speed & Performance:**
+- Processing speed: {status.get('rows_per_second', 0):,.0f} rows/sec
+- Dataset type: {status.get('dataset_type', 'Unknown').upper()}
+- Output path: `{status.get('output_path', 'N/A')}`
+""")
+                
+                elif current_status == 'error':
+                    # Processing error
+                    st.error("❌ Processing Failed!")
+                    st.markdown(f"**Error:** {status.get('error_message', 'Unknown error')}")
+                    st.markdown(f"**Step:** {status.get('current_step', 'Unknown')}")
+                
+                else:
+                    # Idle
+                    st.info("⏸️ No processing in progress. Upload a CSV file to start!")
+                
+                # Show last update time
+                st.divider()
+                last_update = status.get('last_update', 'N/A')
+                st.caption(f"Last updated: {last_update}")
+                
+            except json.JSONDecodeError:
+                st.warning("⚠️ Status file is incomplete or corrupted. Processing may still be running...")
+                st.caption("Refresh this page after a few seconds...")
+        
+        else:
+            st.info("""
+⏸️ **No processing in progress**
+
+**How to start:**
+1. Upload a CSV file using the **"📤 Upload CSV for Processing"** section on the left
+2. Make sure the **File Watcher service is running**
+3. The processing status will appear here in real-time!
+
+**Auto-refresh:** Click the "🔄 Refresh" button to update the status
+            """)
+    
+    with tab2:
         st.subheader("Aperçu des données nettoyées")
         st.dataframe(df.head(20), use_container_width=True)
     
-    with tab2:
+    with tab3:
         st.subheader("Anomalies Détectées")
         if 'anomaly' in df.columns:
             anomaly_rows = df[df['anomaly'] == -1]
@@ -188,7 +336,7 @@ if os.path.exists(data_path):
             else:
                 st.success("✅ Aucune anomalie détectée!")
     
-    with tab3:
+    with tab4:
         st.subheader("✅ Données Propres (Sans Anomalies)")
         if 'anomaly' in df.columns:
             clean_rows = df[df['anomaly'] == 1]  # Normal rows
@@ -220,7 +368,7 @@ if os.path.exists(data_path):
             else:
                 st.warning("❌ Aucune donnée propre trouvée - tous les lignes contiennent des anomalies!")
     
-    with tab4:
+    with tab5:
         st.subheader("Détails des Colonnes")
         for col in df.columns:
             with st.expander(f"Colonne: {col}"):
@@ -231,7 +379,7 @@ if os.path.exists(data_path):
                 if col_data.dtype in ['int64', 'float64']:
                     st.write(f"Min: {col_data.min()}, Max: {col_data.max()}, Moyenne: {col_data.mean():.2f}")
     
-    with tab5:
+    with tab6:
         st.subheader("Statistiques Descriptives")
         st.write(df.describe())
         

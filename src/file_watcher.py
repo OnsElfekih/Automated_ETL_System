@@ -11,7 +11,7 @@ from pathlib import Path
 from datetime import datetime
 from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
-from main import run_pipeline
+from main import run_pipeline, ensure_ml_model_trained
 from logger import log_event
 
 
@@ -218,6 +218,9 @@ class FileWatcherService:
     
     def start(self):
         """Start monitoring the directory"""
+        # PHASE 2: Ensure ML model is trained before starting file watcher
+        ensure_ml_model_trained()
+        
         event_handler = CSVFileHandler(self.archive_dir)
         self.observer = Observer()
         self.observer.schedule(event_handler, self.watch_dir, recursive=False)

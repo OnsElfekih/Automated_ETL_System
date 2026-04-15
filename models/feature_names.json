@@ -1,1 +1,1 @@
-["price_value", "price_is_zero", "price_is_negative", "quantity_value", "quantity_is_zero", "quantity_is_negative", "category_encoded", "price_qty_interaction", "price_per_unit_variance", "anomaly_flags"]
+["price_value", "price_is_zero", "price_is_negative", "quantity_value", "quantity_is_zero", "quantity_is_negative", "category_encoded", "price_qty_interaction", "price_per_unit_variance"]

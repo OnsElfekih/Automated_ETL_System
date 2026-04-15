@@ -75,21 +75,6 @@ class MLModelTrainer:
                 (features['price_value'].std() + 1e-8)
             )
         
-        # ===== RULE-BASED FEATURES (if available from anomaly_classifier) =====
-        if 'anomaly_flags' in df.columns:
-            features['anomaly_flags'] = df['anomaly_flags'].fillna(0)
-        
-        # ===== DATE FEATURES (if applicable) =====
-        for col in ['order_date', 'created_at', 'transaction_date']:
-            if col in df.columns:
-                try:
-                    date_col = pd.to_datetime(df[col], errors='coerce')
-                    features[f'{col}_is_valid'] = date_col.notna().astype(int)
-                    features[f'{col}_day_of_week'] = date_col.dt.dayofweek.fillna(0)
-                    features[f'{col}_month'] = date_col.dt.month.fillna(0)
-                except:
-                    pass
-        
         # Handle missing values
         features = features.fillna(0)
         features = features.replace([np.inf, -np.inf], 0)

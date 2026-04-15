@@ -1,13 +1,13 @@
 {
-  "training_rows": 23801,
-  "features_count": 11,
-  "training_date": "2026-04-15T18:41:26.715863",
+  "training_rows": 45342,
+  "features_count": 9,
+  "training_date": "2026-04-15T20:28:15.365155",
   "model_type": "RandomForest",
   "n_estimators": 200,
   "max_depth": 20,
-  "training_accuracy": 1.0,
+  "training_accuracy": 0.502426006792819,
   "class_distribution": {
-    "anomaly": 220,
-    "normal": 23581
+    "anomaly": 22781,
+    "normal": 22561
   }
 }

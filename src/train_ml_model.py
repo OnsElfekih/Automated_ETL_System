@@ -28,52 +28,95 @@ class MLModelTrainer:
         """
         Extract and engineer features from data for RandomForest training.
         Converts mixed data types to numeric features.
+        Automatically detects available columns.
         """
         df = df.copy()
         features = pd.DataFrame(index=df.index)
         
-        # ===== NUMERIC FEATURES =====
-        numeric_cols = ['price', 'quantity', 'discount']
-        for col in numeric_cols:
-            if col in df.columns:
-                features[f'{col}_value'] = pd.to_numeric(df[col], errors='coerce').fillna(0)
-                features[f'{col}_is_zero'] = (features[f'{col}_value'] == 0).astype(int)
-                features[f'{col}_is_negative'] = (features[f'{col}_value'] < 0).astype(int)
+        # ===== NUMERIC FEATURES (Flexible column detection) =====
+        # Map possible column names
+        numeric_col_mappings = {
+            'price': ['price', 'Price', 'sales', 'Sales', 'Sale'],
+            'quantity': ['quantity', 'Quantity', 'qty', 'Qty'],
+            'discount': ['discount', 'Discount'],
+            'profit': ['profit', 'Profit'],
+            'total_spent': ['total_spent', 'Total Spent', 'total', 'Total']
+        }
+        
+        detected_columns = {}
+        for feature_name, possible_cols in numeric_col_mappings.items():
+            for col in possible_cols:
+                if col in df.columns:
+                    detected_columns[feature_name] = col
+                    break
+        
+        # Process detected numeric columns
+        for feature_name, actual_col in detected_columns.items():
+            features[f'{feature_name}_value'] = pd.to_numeric(df[actual_col], errors='coerce').fillna(0)
+            features[f'{feature_name}_is_zero'] = (features[f'{feature_name}_value'] == 0).astype(int)
+            features[f'{feature_name}_is_negative'] = (features[f'{feature_name}_value'] < 0).astype(int)
         
         # ===== TEXT/STRING FEATURES =====
-        text_cols = ['product_name', 'customer_name', 'description']
-        for col in text_cols:
-            if col in df.columns:
-                features[f'{col}_length'] = df[col].fillna('').astype(str).str.len()
-                features[f'{col}_is_empty'] = (df[col].fillna('') == '').astype(int)
-                features[f'{col}_has_numbers'] = df[col].fillna('').astype(str).str.contains(r'\d').astype(int)
+        text_col_mappings = {
+            'product_name': ['product_name', 'Product Name', 'Product', 'name', 'Name'],
+            'customer_name': ['customer_name', 'Customer Name', 'Customer'],
+            'category': ['category', 'Category'],
+            'description': ['description', 'Description']
+        }
+        
+        for feature_name, possible_cols in text_col_mappings.items():
+            for col in possible_cols:
+                if col in df.columns:
+                    features[f'{col}_length'] = df[col].fillna('').astype(str).str.len()
+                    features[f'{col}_is_empty'] = (df[col].fillna('') == '').astype(int)
+                    features[f'{col}_has_numbers'] = df[col].fillna('').astype(str).str.contains(r'\d').astype(int)
+                    break
         
         # ===== CATEGORICAL FEATURES (ENCODED) =====
-        categorical_cols = ['category', 'status', 'payment_method']
-        for col in categorical_cols:
-            if col in df.columns:
-                # During training: fit & transform; during prediction: fit_transform
-                if col not in self.label_encoders:
-                    self.label_encoders[col] = LabelEncoder()
-                    features[f'{col}_encoded'] = self.label_encoders[col].fit_transform(
-                        df[col].fillna('unknown').astype(str)
-                    )
-                else:
-                    try:
-                        features[f'{col}_encoded'] = self.label_encoders[col].transform(
+        categorical_col_mappings = {
+            'category': ['category', 'Category'],
+            'status': ['status', 'Status'],
+            'payment_method': ['payment_method', 'Payment Method', 'Payment'],
+            'segment': ['segment', 'Segment'],
+            'region': ['region', 'Region']
+        }
+        
+        for feature_name, possible_cols in categorical_col_mappings.items():
+            for col in possible_cols:
+                if col in df.columns:
+                    # During training: fit & transform
+                    if col not in self.label_encoders:
+                        self.label_encoders[col] = LabelEncoder()
+                        features[f'{col}_encoded'] = self.label_encoders[col].fit_transform(
                             df[col].fillna('unknown').astype(str)
                         )
-                    except:
-                        features[f'{col}_encoded'] = 0
+                    else:
+                        try:
+                            features[f'{col}_encoded'] = self.label_encoders[col].transform(
+                                df[col].fillna('unknown').astype(str)
+                            )
+                        except:
+                            features[f'{col}_encoded'] = 0
+                    break
         
         # ===== DERIVED FEATURES =====
-        # Price-Quantity interaction
-        if 'price_value' in features.columns and 'quantity_value' in features.columns:
+        # Price-Quantity interaction (use whatever was detected)
+        price_col = detected_columns.get('price')
+        qty_col = detected_columns.get('quantity')
+        
+        if price_col and qty_col:
             features['price_qty_interaction'] = features['price_value'] * features['quantity_value']
             features['price_per_unit_variance'] = (
                 (features['price_value'] - features['price_value'].mean()).abs() / 
                 (features['price_value'].std() + 1e-8)
             )
+        
+        # Missing data indicators (important for anomaly detection)
+        for col in df.columns:
+            if col not in ['target_class', 'class_name', 'has_anomaly']:
+                null_count = df[col].isnull().sum()
+                if null_count > 0:
+                    features[f'{col}_is_missing'] = df[col].isnull().astype(int)
         
         # Handle missing values
         features = features.fillna(0)

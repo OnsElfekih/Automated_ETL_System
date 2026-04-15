@@ -1,10 +1,59 @@
 feature,importance
-price_is_zero,0.4146448673109817
-price_value,0.3318264324070542
-price_per_unit_variance,0.1698218128588293
-category_encoded,0.05283362769067936
-quantity_is_zero,0.013568351153250491
-quantity_value,0.010393946358160013
-price_qty_interaction,0.006910962221045006
-price_is_negative,0.0
-quantity_is_negative,0.0
+quantity_value,0.10139165855617033
+total_spent_value,0.09185179400078092
+Category_encoded,0.07813307612996839
+Customer ID_is_missing,0.06586785430453101
+Payment Method_encoded,0.06458441956893106
+price_qty_interaction,0.04364013889275866
+Transaction ID_is_missing,0.04264638524565972
+price_value,0.04215310186524512
+Transaction Date_is_missing,0.03451914407572319
+profit_value,0.031427452799773756
+price_per_unit_variance,0.028138767569905684
+Category_length,0.027840924684300508
+total_spent_is_negative,0.026175745154809513
+Product Name_length,0.025773885276142106
+Price Per Unit_is_missing,0.024434088351155063
+Order Date_is_missing,0.022416073679074867
+Order ID_is_missing,0.022024529658611014
+Product ID_is_missing,0.02050041331007969
+Customer Name_length,0.019471321511123515
+quantity_is_negative,0.016617657637022602
+Quantity_is_missing,0.01631788353520248
+Ship Date_is_missing,0.0159548950598626
+discount_value,0.015000850106823171
+Postal Code_is_missing,0.011687890499483204
+Region_encoded,0.011420143909525364
+Profit_is_missing,0.01037921710724727
+Discount_is_missing,0.010344480726992731
+quantity_is_zero,0.009592394586526639
+Total Spent_is_missing,0.008950668753724885
+Segment_encoded,0.008344617112050028
+total_spent_is_zero,0.008032922234446228
+Sales_is_missing,0.0077550168930395815
+price_is_zero,0.005692128553156637
+Product Name_has_numbers,0.005169255500868355
+discount_is_zero,0.004716355227308792
+profit_is_negative,0.0038264460094928087
+price_is_negative,0.0037128977850887403
+profit_is_zero,0.0036787341425332824
+discount_is_negative,0.003505845760525713
+Payment Method_is_missing,0.0008957768133217069
+Discount Applied_is_missing,0.0008946389058773732
+Product Name_is_empty,0.0007352286969839952
+Region_is_missing,0.0007287182809462203
+City_is_missing,0.0006417677477754898
+Ship Mode_is_missing,0.0005790481702708159
+Customer Name_is_missing,0.0004391988470391743
+Segment_is_missing,0.0003608807992658169
+Product Name_is_missing,0.0003314721743821373
+Country_is_missing,0.00024898381978419407
+Location_is_missing,0.0001629537244603783
+Customer Name_is_empty,9.416826808115139e-05
+State_is_missing,6.190699223872718e-05
+Sub-Category_is_missing,5.376961449951521e-05
+Row ID_is_missing,4.657041588180593e-05
+Item_is_missing,3.3840953526342955e-05
+Category_is_empty,0.0
+Customer Name_has_numbers,0.0
+Category_has_numbers,0.0

@@ -99,6 +99,137 @@ class MLModelTrainer:
         
         return features
 
+    def train_on_all_available_data(self, force_retrain=False):
+        """
+        Train model using ALL available training files combined.
+        Better for larger, more diverse datasets.
+        
+        Args:
+            force_retrain: If True, retrain even if model exists
+        """
+        from training_data_manager import TrainingDataManager
+        
+        print("\n" + "="*70)
+        print("PHASE 2: ENHANCED MULTI-FILE MODEL TRAINING")
+        print("="*70)
+        
+        # Check if model already exists
+        if os.path.exists(self.model_path) and not force_retrain:
+            print(f"✅ Model already exists at {self.model_path}")
+            print("   Use force_retrain=True to retrain with new data...")
+            return True
+        
+        # Collect all training data
+        print("\n📂 Step 1: Collecting all available training files...")
+        manager = TrainingDataManager()
+        df = manager.combine_training_files()
+        
+        if df is None:
+            print("❌ No training data available!")
+            return False
+        
+        print(f"\n✅ Loaded combined dataset: {len(df):,} rows")
+        
+        # Prepare features
+        print("\n🔧 Step 2: Engineering features...")
+        features = self.engineer_features(df)
+        print(f"   ✓ Generated {len(features.columns)} features")
+        
+        # Prepare target
+        print("\n🎯 Step 3: Preparing target variable...")
+        if 'has_anomaly' in df.columns:
+            target = df['has_anomaly'].astype(int)
+            print(f"   ✓ Using 'has_anomaly' column")
+        elif 'anomaly' in df.columns:
+            target = (df['anomaly'] == -1).astype(int)
+            print(f"   ✓ Using 'anomaly' column")
+        else:
+            print("   ❌ No anomaly label found!")
+            return False
+        
+        # Show class distribution
+        print(f"\n   📊 Class distribution:")
+        class_dist = target.value_counts()
+        for label, count in class_dist.items():
+            label_name = "ANOMALY" if label == 1 else "NORMAL"
+            pct = (count / len(target) * 100) if len(target) > 0 else 0
+            print(f"      {label_name}: {count:,} ({pct:.1f}%)")
+        
+        # Train RandomForest with enhanced parameters for larger data
+        print("\n🚀 Step 4: Training RandomForest classifier...")
+        print("   Enhanced parameters for larger dataset:")
+        print("   - n_estimators: 200 (was 100)")
+        print("   - max_depth: 20 (was 15)")
+        print("   - min_samples_split: 5")
+        print("   - min_samples_leaf: 2")
+        
+        clf = RandomForestClassifier(
+            n_estimators=200,
+            max_depth=20,
+            min_samples_split=5,
+            min_samples_leaf=2,
+            random_state=42,
+            n_jobs=-1,
+            verbose=1
+        )
+        
+        clf.fit(features, target)
+        print("   ✓ Training complete!")
+        
+        # Feature importance
+        print("\n📊 Top 15 Most Important Features:")
+        feature_importance = pd.DataFrame({
+            'feature': self.feature_names,
+            'importance': clf.feature_importances_
+        }).sort_values('importance', ascending=False)
+        
+        for idx, (_, row) in enumerate(feature_importance.head(15).iterrows(), 1):
+            print(f"   {idx:2d}. {row['feature']:<30} {row['importance']:.4f}")
+        
+        # Save model
+        print(f"\n💾 Saving enhanced model...")
+        joblib.dump(clf, self.model_path)
+        joblib.dump(self.label_encoders, self.feature_encoder_path)
+        with open(self.feature_names_path, 'w') as f:
+            json.dump(self.feature_names, f)
+        
+        # Save metadata
+        metadata = {
+            'training_rows': len(df),
+            'features_count': len(features.columns),
+            'training_date': datetime.now().isoformat(),
+            'model_type': 'RandomForest',
+            'n_estimators': 200,
+            'max_depth': 20,
+            'training_accuracy': float(clf.score(features, target)),
+            'class_distribution': {
+                'anomaly': int(target.sum()),
+                'normal': int(len(target) - target.sum())
+            }
+        }
+        
+        metadata_path = os.path.join(self.model_dir, "enhanced_model_metadata.json")
+        with open(metadata_path, 'w') as f:
+            json.dump(metadata, f, indent=2)
+        
+        print(f"   ✓ Model saved: {self.model_path}")
+        print(f"   ✓ Encoders saved: {self.feature_encoder_path}")
+        print(f"   ✓ Feature names saved: {self.feature_names_path}")
+        print(f"   ✓ Metadata saved: {metadata_path}")
+        
+        # Summary
+        print("\n" + "="*70)
+        print("✅ PHASE 2 ENHANCED TRAINING COMPLETE")
+        print("="*70)
+        print(f"Training rows: {len(df):,}")
+        print(f"Features engineered: {len(features.columns)}")
+        print(f"Model accuracy: {clf.score(features, target):.2%}")
+        print(f"Trees: 200 | Max Depth: 20")
+        print("\n🎯 Ready for production use!")
+        print("="*70 + "\n")
+        
+        return True
+
     def train_model(self, data_path="data/processed/clean.csv", force_retrain=False):
         """
         Train RandomForest model on historical data.

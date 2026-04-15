@@ -160,27 +160,83 @@ class CSVFileHandler(FileSystemEventHandler):
             filename: Original filename
         """
         try:
+            # Check if file still exists (it might have been moved during processing)
+            if not os.path.exists(filepath):
+                print(f"   ℹ️  File already moved during processing")
+                log_event("file_already_moved", {
+                    "filename": filename,
+                    "filepath": filepath
+                })
+                return
+            
+            # Ensure archive directory exists
+            os.makedirs(self.archive_dir, exist_ok=True)
+            
             # Create timestamped filename
             timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
             name, ext = os.path.splitext(filename)
             archived_filename = f"{name}_{timestamp}{ext}"
             archived_path = os.path.join(self.archive_dir, archived_filename)
             
-            # Move file to archive
-            shutil.move(filepath, archived_path)
-            print(f"   📦 Archived to: {archived_path}")
+            # Move file to archive with retry logic for locked files
+            max_retries = 3
+            retry_delay = 0.5
             
-            log_event("file_archived", {
-                "original": filename,
-                "archived": archived_filename,
-                "archive_path": archived_path
-            })
+            for attempt in range(max_retries):
+                try:
+                    shutil.move(filepath, archived_path)
+                    print(f"   📦 Archived to: {archived_path}")
+                    
+                    log_event("file_archived", {
+                        "original": filename,
+                        "archived": archived_filename,
+                        "archive_path": archived_path
+                    })
+                    return
+                except PermissionError as pe:
+                    if attempt < max_retries - 1:
+                        print(f"   ⏳ Retrying file move (attempt {attempt + 1}/{max_retries})...")
+                        time.sleep(retry_delay)
+                    else:
+                        raise
         except Exception as e:
-            print(f"   ⚠️ Warning: Could not archive file - {str(e)}")
+            error_msg = f"Could not move file to archive: {str(e)}"
+            print(f"   ❌ ERROR: {error_msg}")
+            print(f"      File path: {filepath}")
+            print(f"      Archive dir: {self.archive_dir}")
+            print(f"      Error type: {type(e).__name__}")
+            
             log_event("archive_failed", {
                 "filename": filename,
-                "error": str(e)
+                "filepath": filepath,
+                "archive_dir": self.archive_dir,
+                "error": str(e),
+                "error_type": type(e).__name__
             })
+            
+            # As a fallback, try to copy instead of move if original move fails
+            try:
+                if os.path.exists(filepath):
+                    print(f"   🔄 Attempting fallback: copying file instead...")
+                    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+                    name, ext = os.path.splitext(filename)
+                    backup_filename = f"{name}_{timestamp}{ext}"
+                    backup_path = os.path.join(self.archive_dir, backup_filename)
+                    shutil.copy2(filepath, backup_path)
+                    os.remove(filepath)  # Delete original after successful copy
+                    print(f"   ✅ File backed up successfully via copy method")
+                    
+                    log_event("file_archived_fallback", {
+                        "original": filename,
+                        "backup": backup_filename,
+                        "backup_path": backup_path
+                    })
+            except Exception as fallback_error:
+                print(f"   ⚠️  Fallback also failed: {str(fallback_error)}")
+                log_event("archive_fallback_failed", {
+                    "filename": filename,
+                    "error": str(fallback_error)
+                })
 
 
 class FileWatcherService:
@@ -249,14 +305,110 @@ class FileWatcherService:
             print(f"\n✅ File watcher service stopped!")
     
     def run(self):
-        """Run the service indefinitely (blocking)"""
+        """Run the service indefinitely (blocking) with 24/7 robustness"""
+        health_check_interval = 30  # Check every 30 seconds
+        last_health_check = time.time()
+        consecutive_errors = 0
+        max_consecutive_errors = 5
+        
         try:
             self.start()
+            
+            print(f"\n⏰ File watcher running in 24/7 mode")
+            print(f"   Health checks every {health_check_interval} seconds")
+            print(f"   Auto-restart on critical errors\n")
+            
             while True:
-                time.sleep(1)
+                try:
+                    # Health check: Verify observer is still alive
+                    current_time = time.time()
+                    if current_time - last_health_check > health_check_interval:
+                        if not self._health_check():
+                            print(f"\n⚠️  Health check failed - observer may be dead")
+                            print(f"   Attempting to restart...\n")
+                            
+                            consecutive_errors += 1
+                            
+                            if consecutive_errors > max_consecutive_errors:
+                                print(f"\n❌ Too many consecutive errors ({consecutive_errors})")
+                                print(f"   Exiting for external restart mechanism\n")
+                                log_event("file_watcher_critical_error", {
+                                    "reason": "Max consecutive errors exceeded",
+                                    "consecutive_errors": consecutive_errors,
+                                    "timestamp": datetime.now().isoformat()
+                                })
+                                break
+                            
+                            # Try to recover
+                            try:
+                                self.stop()
+                            except:
+                                pass
+                            
+                            time.sleep(2)
+                            self.start()
+                        else:
+                            consecutive_errors = 0  # Reset on successful health check
+                        
+                        last_health_check = current_time
+                    
+                    time.sleep(1)
+                    
+                except Exception as e:
+                    error_msg = f"Error during health check: {str(e)}"
+                    print(f"\n⚠️  {error_msg}")
+                    
+                    log_event("file_watcher_error", {
+                        "error": error_msg,
+                        "error_type": type(e).__name__,
+                        "timestamp": datetime.now().isoformat()
+                    })
+                    
+                    # Continue running, just log the error
+                    time.sleep(5)
+                    
         except KeyboardInterrupt:
-            print("\n\n⏹️  Shutting down...")
+            print("\n\n⏹️  Shutting down gracefully...")
             self.stop()
+            print("✅ File watcher stopped")
+        except Exception as e:
+            print(f"\n❌ CRITICAL ERROR: {str(e)}")
+            print(f"   Type: {type(e).__name__}")
+            print(f"   Exiting for external restart mechanism...\n")
+            
+            log_event("file_watcher_critical_error", {
+                "error": str(e),
+                "error_type": type(e).__name__,
+                "timestamp": datetime.now().isoformat()
+            })
+            
+            try:
+                self.stop()
+            except:
+                pass
+            
+            # Exit with error code so batch file can restart
+            import sys
+            sys.exit(1)
+    
+    def _health_check(self):
+        """
+        Check if the observer is still healthy and running.
+        
+        Returns:
+            True if observer is healthy, False otherwise
+        """
+        try:
+            if self.observer is None:
+                return False
+            
+            # Check if observer is still alive
+            if not self.observer.is_alive():
+                return False
+            
+            return True
+        except:
+            return False
 
 
 # Example usage

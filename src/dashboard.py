@@ -32,18 +32,27 @@ if uploaded_file is not None:
         st.sidebar.success(f"""
 ✅ **File uploaded successfully!**
 
-📁 Saved to: `data/raw/{uploaded_file.name}`
+📁 **Upload Location:**
+`data/raw/{uploaded_file.name}`
 
-🔍 **File Watcher Status:**
-- If file watcher is running, processing will start automatically
-- Check the file watcher terminal for real-time processing
-- Processing typically takes 10-30 seconds
+🔄 **Processing Flow:**
+1. File saved to `data/raw/` ✓
+2. File watcher detects the file
+3. Pipeline processes data (cleaning, validation, anomaly detection)
+4. Processed file → `data/raw/processed_files/` (archived)
+5. Clean output → `data/processed/anomaly_detection.csv` (final result)
 
-💡 **Next Steps:**
-1. Check the file watcher terminal for status
-2. Wait for "✅ COMPLETED" message
-3. Refresh this dashboard to see results
-4. Check "✅ Données Propres" tab for clean data
+⏱️ **Processing Time:**
+- Small files (< 100 rows): 10-20 seconds
+- Medium files (100-500 rows): 20-40 seconds  
+- Large files (500+ rows): 1-2 minutes
+
+✨ **What to do next:**
+1. Check the file watcher terminal for real-time progress
+2. Wait for the "✅ COMPLETED" message
+3. The processed data will be in `data/processed/anomaly_detection.csv`
+4. Refresh this dashboard to see the updated data
+5. View results in the "✅ Données Propres" tab
         """)
         
         # Log the upload
@@ -76,49 +85,80 @@ if st.sidebar.button("🔄 Recharger les données"):
 st.sidebar.divider()
 
 # ===== PROCESSING STATUS INFO =====
-st.sidebar.subheader("⏳ Processing Status")
+st.sidebar.subheader("⏳ Processing Status & File Locations")
 
-# Check for files in data/raw (being processed)
+# Check for files in data/raw (being processed or waiting)
+waiting_files = []
 if os.path.exists('data/raw'):
-    raw_files = [f for f in os.listdir('data/raw') if f.endswith('.csv')]
-    if raw_files:
-        st.sidebar.warning(f"""
-🔄 **Processing in Progress**
+    all_files = [f for f in os.listdir('data/raw') if f.endswith('.csv')]
+    # Exclude those in processed_files subdirectory
+    waiting_files = [f for f in all_files if not any(x in f for x in ['_', '20'])]
 
-Files detected in watch directory:
+if waiting_files:
+    st.sidebar.warning(f"""
+🔄 **Files Waiting for Processing**
+
+{len(waiting_files)} file(s) in watch queue:
 """)
-        for f in raw_files[:5]:  # Show first 5
-            st.sidebar.markdown(f"• `{f}`")
-        
-        st.sidebar.info("""
-⏱️ Processing typically takes:
-- Small files (< 100 rows): 10-20 seconds
-- Medium files (100-500 rows): 20-40 seconds
-- Large files (500+ rows): 1-2 minutes
+    for f in waiting_files[:5]:
+        st.sidebar.markdown(f"• `{f}`")
+    
+    st.sidebar.info("""
+⏱️ **Processing will:**
+1. Start automatically (via file watcher)
+2. Move file to processed_files/ when complete
+3. Save clean data to data/processed/
 
-💡 Check file watcher terminal for real-time progress!
-        """)
+Check file watcher terminal for real-time progress!
+    """)
 
-# Check for processed files
+# Check for successfully processed files
+processed_count = 0
 if os.path.exists('data/raw/processed_files'):
     processed_files = [f for f in os.listdir('data/raw/processed_files') if f.endswith('.csv')]
-    if processed_files:
-        st.sidebar.success(f"✅ **{len(processed_files)} files processed**")
+    processed_count = len(processed_files)
+    
+    if processed_count > 0:
+        st.sidebar.success(f"""
+✅ **{processed_count} file(s) successfully processed & archived**
+
+Files are now in:
+• Original: `data/raw/processed_files/`
+• Cleaned data: `data/processed/anomaly_detection.csv`
+        """)
         
         # Show last processed file
-        latest_file = sorted(processed_files)[-1]
-        st.sidebar.caption(f"Last: {latest_file}")
+        if processed_files:
+            latest_file = sorted(processed_files)[-1]
+            st.sidebar.caption(f"📌 Most recent: {latest_file[:50]}...")
         
         # Show processing log snippet
         try:
             with open('logs/pipeline_logs.json', 'r') as f:
                 lines = f.readlines()
                 if lines:
-                    last_event = json.loads(lines[-1])
-                    if last_event.get('event') == 'processing_completed':
-                        st.sidebar.success(f"✅ Last: {last_event.get('filename', 'N/A')}")
+                    # Find last completed event
+                    for line in reversed(lines[-10:]):  # Check last 10 events
+                        try:
+                            event = json.loads(line)
+                            if event.get('event') == 'processing_completed':
+                                st.sidebar.success(f"✅ Last: {event.get('filename', 'N/A')}")
+                                break
+                        except:
+                            pass
         except:
             pass
+
+# If no files anywhere, show helpful info
+if not waiting_files and processed_count == 0:
+    st.sidebar.info("""
+📊 **No files found yet**
+
+To get started:
+1. Upload a CSV file above
+2. File watcher will auto-process it
+3. Check here for status updates
+    """)
 
 st.sidebar.divider()
 

@@ -4,7 +4,7 @@ from ingest import load_data
 from profiling import profile_data
 from anomaly import detect_anomalies, get_anomaly_insights
 from anomaly_classifier import AnomalyClassifier
-from cleaning import clean_rules
+from cleaning import clean_rules, repair_detected_anomalies, apply_llm_corrections
 from validation import validate
 from logger import log_event
 from llm_fix import fix_row_with_llm
@@ -180,69 +180,47 @@ def run_pipeline(file):
     })
     update_status(status)
 
-    # ===== STEP 5: LLM Correction (Optional) =====
-    print(f"\n▶️  STEP 5: LLM Correction (Top 2 Anomalies)")
-    status['current_step'] = 'LLM Correction'
-    status['current_tier'] = 'Step 5/7'
-    status['percent_complete'] = 65
+    # ===== STEP 5: Rule-based Cleaning =====
+    print(f"\n▶️  STEP 5: Rule-based Cleaning of Detected Anomalies")
+    status['current_step'] = 'Rule-based Cleaning'
+    status['current_tier'] = 'Step 5/8'
+    status['percent_complete'] = 60
     status['elapsed_seconds'] = time.time() - start_time
     update_status(status)
     
     step_start = time.time()
-    anomalies = df[df['anomaly'] == -1]
-    
-    # Processus de correction LLM limité à 2 exemples pour éviter les temps d'attente trop longs
-    llm_feedback = []
-    llm_count = 0
-    
-    for idx, row in anomalies.head(2).iterrows():
-        try:
-            print(f"   Correcting anomaly at row {idx}...")
-            
-            corrected_val = fix_row_with_llm(row)
-            llm_count += 1
-            
-            # Sauvegarde des corrections pour alimenter le dataset ML (Feedback Loop)
-            llm_feedback.append({
-                "index": idx,
-                "original": row.to_dict(),
-                "anomaly_types_detected": row['anomaly_types'],
-                "confidence": int(row['anomaly_confidence']),
-                "llm_correction": corrected_val
-            })
-            
-            log_event("llm_correction", {
-                "index": idx,
-                "status": "success",
-                "anomaly_types": row['anomaly_types'],
-                "correction": corrected_val
-            })
-        except Exception as e:
-            log_event("llm_correction", {
-                "index": idx,
-                "status": "failed",
-                "anomaly_types": row['anomaly_types'],
-                "error": str(e)
-            })
-
-    # Enregistrer le feedback LLM dans un fichier JSON pour futur entraînement
-    if llm_feedback:
-        with open("data/processed/llm_feedback.json", "a", encoding="utf-8") as fb:
-            for item in llm_feedback:
-                fb.write(json.dumps(item) + "\n")
-    
+    df, cleaning_report = repair_detected_anomalies(df)
     step_time = time.time() - step_start
-    status['llm_corrections'] = llm_count
-    status['percent_complete'] = 75
+    status['rule_based_rows_updated'] = cleaning_report.get('rows_updated', 0)
+    status['percent_complete'] = 70
     status['elapsed_seconds'] = time.time() - start_time
-    print(f"   ✓ LLM corrections applied ({llm_count} rows, {step_time:.2f}s)")
+    print(f"   ✓ Rule-based cleaning applied ({cleaning_report.get('rows_updated', 0)} rows, {step_time:.2f}s)")
+    log_event("rule_based_cleaning", cleaning_report)
     update_status(status)
 
-    # ===== STEP 6: Validation =====
-    print(f"\n▶️  STEP 6: Final Validation")
+    # ===== STEP 6: LLM Correction (Optional) =====
+    print(f"\n▶️  STEP 6: LLM Correction (Optional, Top 2 Remaining Anomalies)")
+    status['current_step'] = 'LLM Correction'
+    status['current_tier'] = 'Step 6/8'
+    status['percent_complete'] = 75
+    status['elapsed_seconds'] = time.time() - start_time
+    update_status(status)
+
+    step_start = time.time()
+    df, llm_report = apply_llm_corrections(df, max_rows=2)
+    step_time = time.time() - step_start
+    status['llm_corrections'] = llm_report.get('rows_updated', 0)
+    status['percent_complete'] = 82
+    status['elapsed_seconds'] = time.time() - start_time
+    print(f"   ✓ LLM corrections applied ({llm_report.get('rows_updated', 0)} rows, {step_time:.2f}s)")
+    log_event("llm_correction", llm_report)
+    update_status(status)
+
+    # ===== STEP 7: Validation =====
+    print(f"\n▶️  STEP 7: Final Validation")
     status['current_step'] = 'Final Validation'
-    status['current_tier'] = 'Step 6/7'
-    status['percent_complete'] = 85
+    status['current_tier'] = 'Step 7/8'
+    status['percent_complete'] = 88
     status['elapsed_seconds'] = time.time() - start_time
     update_status(status)
     
@@ -253,10 +231,10 @@ def run_pipeline(file):
     print(f"   ✓ Validation complete ({step_time:.2f}s)")
     update_status(status)
 
-    # ===== STEP 7: Save Results =====
-    print(f"\n▶️  STEP 7: Saving Results")
+    # ===== STEP 8: Save Results =====
+    print(f"\n▶️  STEP 8: Saving Results")
     status['current_step'] = 'Saving Results'
-    status['current_tier'] = 'Step 7/7'
+    status['current_tier'] = 'Step 8/8'
     status['percent_complete'] = 95
     update_status(status)
     
@@ -278,7 +256,8 @@ def run_pipeline(file):
     print(f"📊 Summary:")
     print(f"   • Rows processed: {total_rows:,}")
     print(f"   • Anomalies found: {anomalies_count:,} ({anomalies_count/total_rows*100:.1f}%)")
-    print(f"   • LLM corrections: {llm_count}")
+    print(f"   • Rule-based rows updated: {cleaning_report.get('rows_updated', 0)}")
+    print(f"   • LLM corrections: {llm_report.get('rows_updated', 0)}")
     print(f"   • Total time: {total_time:.2f}s")
     print(f"   • Speed: {rows_per_sec:,.0f} rows/sec")
     print(f"{'='*70}\n")

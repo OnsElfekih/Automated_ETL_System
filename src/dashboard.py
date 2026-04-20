@@ -79,6 +79,15 @@ st.sidebar.divider()
 st.sidebar.subheader("📂 Data Path")
 data_path = st.sidebar.text_input("Chemin du fichier propre", "data/processed/anomaly_detection.csv")
 
+if 'show_clean_csv' not in st.session_state:
+    st.session_state.show_clean_csv = False
+
+if st.sidebar.button("👀 Afficher le CSV propre"):
+    st.session_state.show_clean_csv = True
+
+if st.sidebar.button("🧹 Masquer le CSV propre"):
+    st.session_state.show_clean_csv = False
+
 if st.sidebar.button("🔄 Recharger les données"):
     st.rerun()
 
@@ -396,6 +405,10 @@ if os.path.exists(data_path):
                 # Show relevant columns only
                 display_cols = [col for col in clean_rows.columns if col not in ['anomaly_method', 'anomaly', 'has_anomaly', 'empty_count']]
                 st.dataframe(clean_rows[display_cols], use_container_width=True)
+
+                if st.session_state.show_clean_csv:
+                    st.write("**CSV propre complet:**")
+                    st.dataframe(clean_rows[display_cols], use_container_width=True, height=600)
                 
                 # Download clean data
                 csv = clean_rows.to_csv(index=False)

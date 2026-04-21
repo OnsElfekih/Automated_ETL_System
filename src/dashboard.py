@@ -3,6 +3,11 @@ import pandas as pd
 import os
 import json
 from datetime import datetime
+import sys
+from pathlib import Path
+
+# Add src to path for imports
+sys.path.insert(0, str(Path(__file__).parent))
 
 st.set_page_config(page_title="ETL Quality Dashboard", layout="wide")
 st.title("📊 ETL & Data Quality Dashboard")
@@ -75,7 +80,74 @@ if uploaded_file is not None:
 # Separator
 st.sidebar.divider()
 
-# ===== DATA PATH & RELOAD SECTION =====
+# ===== MANUAL PROCESSING SECTION =====
+st.sidebar.subheader("⚙️ Manual Processing")
+
+# Check for unprocessed files
+if os.path.exists('data/raw'):
+    raw_files = [f for f in os.listdir('data/raw') if f.endswith('.csv')]
+    
+    if raw_files:
+        st.sidebar.write(f"**Found {len(raw_files)} CSV file(s) in `data/raw/`:**")
+        for f in raw_files[:3]:
+            st.sidebar.caption(f"• {f}")
+        
+        col1, col2 = st.sidebar.columns(2)
+        
+        with col1:
+            if st.button("🚀 Process Now!", key="process_now_btn", help="Manually trigger pipeline on files in data/raw/"):
+                st.sidebar.info("⏳ Starting pipeline...")
+                
+                try:
+                    from main import run_pipeline
+                    
+                    # Process the first CSV file found
+                    for filename in raw_files:
+                        filepath = os.path.join('data/raw', filename)
+                        
+                        st.sidebar.write(f"\n▶️ Processing: **{filename}**")
+                        
+                        # Run pipeline
+                        run_pipeline(filepath)
+                        
+                        # Archive the file
+                        from pathlib import Path
+                        archive_dir = Path('data/raw/processed_files')
+                        archive_dir.mkdir(parents=True, exist_ok=True)
+                        
+                        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+                        name, ext = os.path.splitext(filename)
+                        archived_name = f"{name}_{timestamp}{ext}"
+                        archived_path = archive_dir / archived_name
+                        
+                        import shutil
+                        shutil.move(filepath, str(archived_path))
+                        
+                        st.sidebar.success(f"✅ Processed: {filename}")
+                        st.sidebar.success(f"📦 Archived to: {archived_name}")
+                        
+                        # Trigger refresh
+                        st.rerun()
+                        
+                except Exception as e:
+                    st.sidebar.error(f"❌ Error during processing: {str(e)}")
+                    import traceback
+                    st.sidebar.error(traceback.format_exc())
+        
+        with col2:
+            if st.button("🗑️ Clear", key="clear_raw_btn", help="Delete all files in data/raw/"):
+                for f in raw_files:
+                    try:
+                        os.remove(os.path.join('data/raw', f))
+                    except:
+                        pass
+                st.sidebar.info("✅ Raw files cleared")
+                st.rerun()
+    else:
+        st.sidebar.info("📁 No CSV files in `data/raw/` yet")
+
+# Separator
+st.sidebar.divider()
 st.sidebar.subheader("📂 Data Path")
 data_path = st.sidebar.text_input("Chemin du fichier propre", "data/processed/anomaly_detection.csv")
 
@@ -201,7 +273,7 @@ if os.path.exists(data_path):
         col4.metric("✅ Normal", len(df) - anomalies)
 
     # Tabs for different views
-    tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(["⏳ Processing Status", "📈 Aperçu", "🚨 Anomalies", "✅ Données Propres", "🔍 Détails", "📊 Statistiques"])
+    tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs(["⏳ Processing Status", "📈 Aperçu", "🚨 Anomalies", "✅ Données Propres", "🧹 Clean Data", "🔍 Détails", "📊 Statistiques"])
     
     # ===== TAB 1: PROCESSING STATUS =====
     with tab1:
@@ -353,7 +425,8 @@ if os.path.exists(data_path):
     
     with tab2:
         st.subheader("Aperçu des données nettoyées")
-        st.dataframe(df.head(20), use_container_width=True)
+        display_cols = [col for col in df.columns if col not in ['anomaly_method', 'anomaly_types', 'anomaly_flags', 'anomaly_severity', 'anomaly_score', 'severity_weight', 'anomaly', 'anomaly_confidence', 'ml_anomaly_score']]
+        st.dataframe(df[display_cols].head(20), use_container_width=True)
     
     with tab3:
         st.subheader("Anomalies Détectées")
@@ -367,20 +440,34 @@ if os.path.exists(data_path):
                     anomaly_type_counts = {}
                     for types_str in anomaly_rows['anomaly_types']:
                         for atype in str(types_str).split('|'):
-                            if atype:
-                                anomaly_type_counts[atype] = anomaly_type_counts.get(atype, 0) + 1
+                            if atype and str(atype).strip():
+                                atype_clean = str(atype).strip()
+                                anomaly_type_counts[atype_clean] = anomaly_type_counts.get(atype_clean, 0) + 1
                     
-                    st.bar_chart(pd.Series(anomaly_type_counts).sort_values(ascending=False))
+                    if anomaly_type_counts:
+                        type_series = pd.Series(anomaly_type_counts).sort_values(ascending=False)
+                        try:
+                            st.bar_chart(type_series)
+                        except Exception as e:
+                            st.warning(f"Couldn't render anomaly types chart: {str(e)}")
+                    else:
+                        st.info("Aucun type d'anomalie détecté")
                 
                 # Show confidence distribution
                 if 'anomaly_confidence' in df.columns:
                     st.write("**Confiance des anomalies détectées:**")
                     confidence_dist = anomaly_rows['anomaly_confidence'].value_counts().sort_index()
-                    st.bar_chart(confidence_dist)
+                    if len(confidence_dist) > 0:
+                        try:
+                            st.bar_chart(confidence_dist)
+                        except Exception as e:
+                            st.warning(f"Couldn't render confidence chart: {str(e)}")
+                    else:
+                        st.info("Aucune donnée de confiance disponible")
                 
                 # Display anomalous rows
                 st.write("**Lignes identifiées comme anomalies:**")
-                display_cols = [col for col in anomaly_rows.columns if col not in ['anomaly_method']]
+                display_cols = ['has_anomaly', 'empty_count']
                 st.dataframe(anomaly_rows[display_cols], use_container_width=True)
             else:
                 st.success("✅ Aucune anomalie détectée!")
@@ -403,7 +490,7 @@ if os.path.exists(data_path):
                 # Display clean rows
                 st.write("**Aperçu des données propres:**")
                 # Show relevant columns only
-                display_cols = [col for col in clean_rows.columns if col not in ['anomaly_method', 'anomaly', 'has_anomaly', 'empty_count']]
+                display_cols = [col for col in clean_rows.columns if col not in ['anomaly_method', 'anomaly', 'has_anomaly', 'empty_count', 'anomaly_flags', 'anomaly_severity', 'anomaly_score', 'severity_weight', 'anomaly_confidence', 'ml_anomaly_score', 'anomaly_types']]
                 st.dataframe(clean_rows[display_cols], use_container_width=True)
 
                 if st.session_state.show_clean_csv:
@@ -422,8 +509,67 @@ if os.path.exists(data_path):
                 st.warning("❌ Aucune donnée propre trouvée - tous les lignes contiennent des anomalies!")
     
     with tab5:
+        st.subheader("🧹 Clean Data - Final Processed Output")
+        
+        # Load the clean data CSV directly
+        clean_data_path = "data/processed/anomaly_detection.csv"
+        
+        if os.path.exists(clean_data_path):
+            try:
+                clean_df = pd.read_csv(clean_data_path)
+                
+                # Display summary statistics
+                col1, col2, col3, col4 = st.columns(4)
+                col1.metric("📊 Total Rows", len(clean_df))
+                col2.metric("📋 Columns", len(clean_df.columns))
+                col3.metric("✅ Data Quality", "100%")
+                if 'price' in clean_df.columns:
+                    try:
+                        avg_price = pd.to_numeric(clean_df['price'], errors='coerce').mean()
+                        col4.metric("💰 Avg Price", f"{avg_price:.2f}")
+                    except:
+                        pass
+                
+                st.divider()
+                
+                # Display the clean data
+                st.write("### 📋 Clean Data Preview")
+                display_cols = [col for col in clean_df.columns if col not in ['anomaly_method', 'anomaly_types', 'anomaly_flags', 'anomaly_severity', 'anomaly_score', 'severity_weight', 'anomaly', 'anomaly_confidence', 'ml_anomaly_score']]
+                st.dataframe(clean_df[display_cols], use_container_width=True, height=400)
+                
+                st.divider()
+                
+                # Download button
+                csv = clean_df[display_cols].to_csv(index=False)
+                st.download_button(
+                    label="📥 Download Clean Data (CSV)",
+                    data=csv,
+                    file_name=f"clean_data_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+                    mime="text/csv",
+                    key="download_clean_csv"
+                )
+                
+                st.write("### 📊 Data Summary")
+                st.dataframe(clean_df[display_cols].describe(), use_container_width=True)
+                    
+            except Exception as e:
+                st.error(f"Error loading clean data: {str(e)}")
+        else:
+            st.info("📁 No clean data available yet. Process a CSV file first!")
+            st.markdown("""
+**To generate clean data:**
+1. Upload a CSV file using the **📤 Upload CSV** section
+2. Click **🚀 Process Now!** to manually process it
+3. Or start the file watcher service for automatic processing
+4. Clean data will appear here once processing completes
+            """)
+    
+    with tab6:
         st.subheader("Détails des Colonnes")
+        exclude_cols = ['anomaly_method', 'anomaly_types', 'anomaly_flags', 'anomaly_severity', 'anomaly_score', 'severity_weight', 'anomaly', 'anomaly_confidence', 'ml_anomaly_score']
         for col in df.columns:
+            if col in exclude_cols:
+                continue
             with st.expander(f"Colonne: {col}"):
                 col_data = df[col]
                 st.write(f"Type: {col_data.dtype}")
@@ -432,14 +578,24 @@ if os.path.exists(data_path):
                 if col_data.dtype in ['int64', 'float64']:
                     st.write(f"Min: {col_data.min()}, Max: {col_data.max()}, Moyenne: {col_data.mean():.2f}")
     
-    with tab6:
+    with tab7:
         st.subheader("Statistiques Descriptives")
-        st.write(df.describe())
+        exclude_cols = ['anomaly_method', 'anomaly_types', 'anomaly_flags', 'anomaly_severity', 'anomaly_score', 'severity_weight', 'anomaly', 'anomaly_confidence', 'ml_anomaly_score']
+        display_df = df[[col for col in df.columns if col not in exclude_cols]]
+        st.write(display_df.describe())
         
         st.subheader("Données Manquantes")
-        missing_data = df.isnull().sum()
+        missing_data = display_df.isnull().sum()
         if missing_data.sum() > 0:
-            st.bar_chart(missing_data[missing_data > 0])
+            missing_filtered = missing_data[missing_data > 0]
+            if len(missing_filtered) > 0:
+                try:
+                    st.bar_chart(missing_filtered)
+                except Exception as e:
+                    st.warning(f"Couldn't render missing data chart: {str(e)}")
+                    st.write(missing_filtered)
+            else:
+                st.info("✅ Aucune donnée manquante!")
         else:
             st.info("✅ Aucune donnée manquante!")
     

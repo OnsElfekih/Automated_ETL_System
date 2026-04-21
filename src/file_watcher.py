@@ -413,6 +413,16 @@ class FileWatcherService:
 
 # Example usage
 if __name__ == "__main__":
+    # Get the project root (parent of src directory)
+    import sys
+    from pathlib import Path
+    
+    src_dir = Path(__file__).parent
+    project_root = src_dir.parent
+    
+    # Change to project root so relative paths work correctly
+    os.chdir(project_root)
+    
     watcher = FileWatcherService(
         watch_dir='data/raw',
         archive_dir='data/raw/processed_files'

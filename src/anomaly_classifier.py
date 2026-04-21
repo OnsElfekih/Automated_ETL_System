@@ -735,29 +735,38 @@ class AdvancedAnomalyClassifier:
         # ===== PRICE (handles 'price' or 'UnitPrice') =====
         price_col = 'price' if 'price' in df.columns else ('UnitPrice' if 'UnitPrice' in df.columns else None)
         if price_col:
-            price = pd.to_numeric(df[price_col], errors='coerce')
+            # Parse price as numeric (minimal cleaning)
+            price_raw = df[price_col].astype(str).str.strip()
+            price = pd.to_numeric(price_raw, errors='coerce')
             
-            # Negative price
+            # Flag: Conversion failed (can't parse as number)
+            parse_failed = price.isna() & (df[price_col].notna()) & (df[price_col].astype(str).str.strip() != '')
+            df.loc[parse_failed, 'anomaly_flags'] += 2
+            df.loc[parse_failed, 'anomaly_types'] += 'price_not_numeric|'
+            df.loc[parse_failed, 'has_anomaly'] = True
+            df.loc[parse_failed, 'anomaly_severity'] = 'high'
+            
+            # Flag: Negative price
             neg_price = (price < 0) & (price.notna())
             df.loc[neg_price, 'anomaly_flags'] += 2
             df.loc[neg_price, 'anomaly_types'] += 'price_negative|'
             df.loc[neg_price, 'has_anomaly'] = True
             df.loc[neg_price, 'anomaly_severity'] = 'high'
             
-            # Zero price (if not allowed)
+            # Flag: Zero price
             zero_price = (price == 0) & (price.notna())
             df.loc[zero_price, 'anomaly_flags'] += 1
             df.loc[zero_price, 'anomaly_types'] += 'price_zero|'
             df.loc[zero_price, 'has_anomaly'] = True
             
-            # Extreme high price
+            # Flag: Extreme high price
             high_price = (price > self.thresholds['price_max']) & (price.notna())
             df.loc[high_price, 'anomaly_flags'] += 2
             df.loc[high_price, 'anomaly_types'] += 'price_extreme_high|'
             df.loc[high_price, 'has_anomaly'] = True
             df.loc[high_price, 'anomaly_severity'] = 'medium'
             
-            # Too many decimal places
+            # Flag: Too many decimal places
             too_decimals = price.astype(str).str.contains(r'\.\d{3,}', regex=True, na=False)
             df.loc[too_decimals, 'anomaly_flags'] += 1
             df.loc[too_decimals, 'anomaly_types'] += 'price_too_many_decimals|'
@@ -766,9 +775,18 @@ class AdvancedAnomalyClassifier:
         # ===== QUANTITY (handles 'quantity' or 'Quantity') =====
         qty_col = 'quantity' if 'quantity' in df.columns else ('Quantity' if 'Quantity' in df.columns else None)
         if qty_col:
-            qty = pd.to_numeric(df[qty_col], errors='coerce')
+            # Parse quantity as numeric (minimal cleaning - just strip and commas)
+            qty_raw = df[qty_col].astype(str).str.strip().str.replace(',', '')
+            qty = pd.to_numeric(qty_raw, errors='coerce')
             
-            # Negative quantity (for sales, but allowed for retail returns)
+            # Flag: Conversion failed (can't parse as number)
+            parse_failed = qty.isna() & (df[qty_col].notna()) & (df[qty_col].astype(str).str.strip() != '')
+            df.loc[parse_failed, 'anomaly_flags'] += 2
+            df.loc[parse_failed, 'anomaly_types'] += 'quantity_not_numeric|'
+            df.loc[parse_failed, 'has_anomaly'] = True
+            df.loc[parse_failed, 'anomaly_severity'] = 'high'
+            
+            # Flag: Negative quantity (for sales, but allowed for retail returns)
             neg_qty = (qty < 0) & (qty.notna())
             if self.dataset_type != 'retail':  # Only flag as critical for non-retail
                 df.loc[neg_qty, 'anomaly_flags'] += 2
@@ -776,13 +794,13 @@ class AdvancedAnomalyClassifier:
                 df.loc[neg_qty, 'has_anomaly'] = True
                 df.loc[neg_qty, 'anomaly_severity'] = 'high'
             
-            # Zero quantity (depending on context)
+            # Flag: Zero quantity
             zero_qty = (qty == 0) & (qty.notna())
             df.loc[zero_qty, 'anomaly_flags'] += 1
             df.loc[zero_qty, 'anomaly_types'] += 'quantity_zero|'
             df.loc[zero_qty, 'has_anomaly'] = True
             
-            # Extremely large quantity
+            # Flag: Extremely large quantity
             high_qty = (qty > self.thresholds['quantity_max']) & (qty.notna())
             df.loc[high_qty, 'anomaly_flags'] += 2
             df.loc[high_qty, 'anomaly_types'] += 'quantity_extreme|'
@@ -790,7 +808,10 @@ class AdvancedAnomalyClassifier:
         
         # ===== DISCOUNTS =====
         if 'discount' in df.columns:
-            discount = pd.to_numeric(df['discount'], errors='coerce')
+            discount = pd.to_numeric(
+                df['discount'].astype(str).str.strip().str.replace(',', '').str.replace('%', ''),
+                errors='coerce'
+            )
             
             # Discount > 100%
             over_discount = (discount > self.thresholds['discount_max']) & (discount.notna())
@@ -1170,48 +1191,66 @@ class AdvancedAnomalyClassifier:
         
         # ===== Quantity validation for retail =====
         if 'Quantity' in df.columns:
-            qty = pd.to_numeric(df['Quantity'], errors='coerce')
+            # Parse quantity as numeric (minimal cleaning)
+            qty_raw = df['Quantity'].astype(str).str.strip()
+            qty = pd.to_numeric(qty_raw, errors='coerce')
             
-            # Negative quantity (returns)
+            # Flag: Parse failed
+            parse_failed = qty.isna() & (df['Quantity'].notna()) & (df['Quantity'].astype(str).str.strip() != '')
+            df.loc[parse_failed, 'anomaly_flags'] += 2
+            df.loc[parse_failed, 'anomaly_types'] += 'quantity_not_numeric|'
+            df.loc[parse_failed, 'has_anomaly'] = True
+            
+            # Flag: Negative quantity (returns) - marked as returns, not critical
             neg_qty = (qty < 0) & (qty.notna())
             df.loc[neg_qty, 'anomaly_flags'] += 1
             df.loc[neg_qty, 'anomaly_types'] += 'quantity_negative_return|'
             df.loc[neg_qty, 'has_anomaly'] = True
             df.loc[neg_qty, 'anomaly_severity'] = 'medium'
             
-            # Zero quantity
+            # Flag: Zero quantity
             zero_qty = (qty == 0) & (qty.notna())
             df.loc[zero_qty, 'anomaly_flags'] += 1
             df.loc[zero_qty, 'anomaly_types'] += 'quantity_zero|'
             df.loc[zero_qty, 'has_anomaly'] = True
             
-            # Extremely large orders (potential bulk/wholesale)
-            high_qty = qty > (qty.quantile(0.95))
-            mask = high_qty & (qty.notna())
-            df.loc[mask, 'anomaly_flags'] = df.loc[mask, 'anomaly_flags'].astype(float) + 0.5
-            df.loc[mask, 'anomaly_types'] += 'quantity_unusually_high|'
+            # Flag: Extremely large orders (potential bulk/wholesale)
+            if qty.notna().any():
+                high_qty = qty > (qty.quantile(0.95))
+                mask = high_qty & (qty.notna())
+                df.loc[mask, 'anomaly_flags'] = df.loc[mask, 'anomaly_flags'].astype(float) + 0.5
+                df.loc[mask, 'anomaly_types'] += 'quantity_unusually_high|'
         
         # ===== UnitPrice validation =====
         if 'UnitPrice' in df.columns:
-            price = pd.to_numeric(df['UnitPrice'], errors='coerce')
+            # Parse price as numeric (minimal cleaning)
+            price_raw = df['UnitPrice'].astype(str).str.strip()
+            price = pd.to_numeric(price_raw, errors='coerce')
             
-            # Negative price
+            # Flag: Parse failed
+            parse_failed = price.isna() & (df['UnitPrice'].notna()) & (df['UnitPrice'].astype(str).str.strip() != '')
+            df.loc[parse_failed, 'anomaly_flags'] += 2
+            df.loc[parse_failed, 'anomaly_types'] += 'unit_price_not_numeric|'
+            df.loc[parse_failed, 'has_anomaly'] = True
+            
+            # Flag: Negative price
             neg_price = (price < 0) & (price.notna())
             df.loc[neg_price, 'anomaly_flags'] += 2
             df.loc[neg_price, 'anomaly_types'] += 'unit_price_negative|'
             df.loc[neg_price, 'has_anomaly'] = True
             df.loc[neg_price, 'anomaly_severity'] = 'high'
             
-            # Zero price
+            # Flag: Zero price
             zero_price = (price == 0) & (price.notna())
             df.loc[zero_price, 'anomaly_flags'] += 1
             df.loc[zero_price, 'anomaly_types'] += 'unit_price_zero|'
             df.loc[zero_price, 'has_anomaly'] = True
             
-            # Suspiciously low price (potential discounting)
-            low_price = (price < (price.quantile(0.05))) & (price > 0) & (price.notna())
-            df.loc[low_price, 'anomaly_flags'] = df.loc[low_price, 'anomaly_flags'].astype(float) + 0.5
-            df.loc[low_price, 'anomaly_types'] += 'unit_price_unusually_low|'
+            # Flag: Suspiciously low price (potential discounting)
+            if price.notna().any():
+                low_price = (price < (price.quantile(0.05))) & (price > 0) & (price.notna())
+                df.loc[low_price, 'anomaly_flags'] = df.loc[low_price, 'anomaly_flags'].astype(float) + 0.5
+                df.loc[low_price, 'anomaly_types'] += 'unit_price_unusually_low|'
         
         # ===== InvoiceDate validation =====
         if 'InvoiceDate' in df.columns:

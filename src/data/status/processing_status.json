@@ -1,0 +1,11 @@
+{
+  "status": "processing",
+  "file": "sales_dirty_3.csv",
+  "percent_complete": 5,
+  "elapsed_seconds": 0.0026862621307373047,
+  "estimated_remaining_seconds": 0.05103898048400879,
+  "rows_per_second": 0,
+  "last_update": "2026-04-28T20:09:21.218721",
+  "current_step": "Data Loading",
+  "current_tier": "Step 1/7"
+}

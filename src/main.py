@@ -246,6 +246,16 @@ def run_pipeline(file):
     
     log_event("pipeline_end", {"output": output_path, "status": "success"})
     
+    # ===== CLEANUP: Remove processed raw file =====
+    if os.path.exists(file):
+        try:
+            os.remove(file)
+            print(f"🗑️  Cleanup: Removed processed raw file: {file}")
+            log_event("file_cleanup", {"removed_file": file})
+        except Exception as e:
+            print(f"⚠️  Warning: Could not remove {file}: {e}")
+            log_event("file_cleanup_error", {"file": file, "error": str(e)})
+    
     # ===== FINAL SUMMARY =====
     total_time = time.time() - start_time
     rows_per_sec = total_rows / total_time if total_time > 0 else 0

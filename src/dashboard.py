@@ -512,7 +512,7 @@ if os.path.exists(data_path):
         st.subheader("🧹 Clean Data - Final Processed Output")
         
         # Load the clean data CSV directly
-        clean_data_path = "data/processed/anomaly_detection.csv"
+        clean_data_path = "data/processed/clean_data.csv"
         
         if os.path.exists(clean_data_path):
             try:

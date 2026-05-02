@@ -359,20 +359,23 @@ def repair_detected_anomalies(df):
                 row_changed = True
 
         # Enhanced date handling - invalid dates become NaT, future dates become NaT
-        if "date" in df.columns:
-            date_value = pd.to_datetime(df.at[idx, "date"], errors="coerce")
-            
-            if pd.isna(date_value):
-                df.at[idx, "date"] = pd.NaT
-                fix_counts["date_invalid_to_nat"] = fix_counts.get("date_invalid_to_nat", 0) + 1
-                row_changed = True
-            elif date_value > pd.Timestamp(datetime.now()):
-                # Future date detection - set to NaT
-                df.at[idx, "date"] = pd.NaT
-                fix_counts["date_future_to_nat"] = fix_counts.get("date_future_to_nat", 0) + 1
-                row_changed = True
-            else:
-                df.at[idx, "date"] = date_value.date()
+    if "date" in df.columns:
+        today = pd.Timestamp(datetime.now().date())
+
+    for idx in df.index:
+        raw_value = df.at[idx, "date"]
+        date_value = pd.to_datetime(raw_value, errors="coerce")
+
+        if pd.isna(date_value):
+            df.at[idx, "date"] = "unknown_date"
+            fix_counts["date_missing_replaced"] = fix_counts.get("date_missing_replaced", 0) + 1
+
+        elif date_value > today:
+            df.at[idx, "date"] = "unknown_date"
+            fix_counts["date_future_replaced"] = fix_counts.get("date_future_replaced", 0) + 1
+
+        else:
+            df.at[idx, "date"] = date_value.date()
 
         if row_changed:
             rows_updated += 1

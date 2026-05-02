@@ -1,5 +1,6 @@
 import json
 import pandas as pd
+from datetime import datetime
 
 
 def _normalize_columns(df):
@@ -26,6 +27,113 @@ def _safe_positive_median(series, default_value):
         return float(positive_values.median())
 
     return default_value
+
+
+def _get_hierarchical_median_price(df, product=None, category=None):
+    """
+    Get median price using hierarchical approach:
+    1. Try median of same product
+    2. Try median of same category
+    3. Fall back to global median
+    """
+    if "price" not in df.columns:
+        return 1.0
+
+    prices = _to_numeric(df["price"])
+    positive_prices = prices[prices > 0]
+
+    # Try product-specific median
+    if product is not None and "product" in df.columns:
+        product_prices = _to_numeric(
+            df[df["product"].astype(str).str.lower() == str(product).lower()]["price"]
+        )
+        product_positive = product_prices[product_prices > 0]
+        if not product_positive.empty:
+            return float(product_positive.median())
+
+    # Try category-specific median
+    if category is not None and "category" in df.columns:
+        category_prices = _to_numeric(
+            df[df["category"].astype(str).str.lower() == str(category).lower()]["price"]
+        )
+        category_positive = category_prices[category_positive > 0]
+        if not category_positive.empty:
+            return float(category_positive.median())
+
+    # Fall back to global median
+    if not positive_prices.empty:
+        return float(positive_prices.median())
+
+    return 1.0
+
+
+def _standardize_category(category_str, product_str=None):
+    """
+    Standardize category names to ensure consistency.
+    Uses product mapping if product is provided.
+    """
+    product_category_map = {
+        "apple": "fruits",
+        "banana": "fruits",
+        "orange": "fruits",
+        "grape": "fruits",
+        "chicken": "meat",
+        "beef": "meat",
+        "fish": "meat",
+        "pork": "meat",
+        "milk": "dairy",
+        "cheese": "dairy",
+        "yogurt": "dairy",
+        "butter": "dairy",
+        "eggs": "dairy",
+        "egg": "dairy",
+        "bread": "bakery",
+        "pasta": "dry",
+        "rice": "dry",
+        "juice": "beverages",
+        "laptop": "electronics",
+        "phone": "electronics",
+        "shirt": "fashion",
+        "shoes": "fashion",
+        "pants": "fashion",
+    }
+
+    category_normalized = str(category_str).strip().lower()
+
+    # If product is provided, try to infer category from product
+    if product_str:
+        product_normalized = str(product_str).strip().lower()
+        if product_normalized in product_category_map:
+            return product_category_map[product_normalized]
+
+    # Standardize known categories
+    category_map = {
+        "fruit": "fruits",
+        "fruits": "fruits",
+        "vegetable": "vegetables",
+        "vegetables": "vegetables",
+        "meat": "meat",
+        "fish": "meat",
+        "poultry": "meat",
+        "dairy": "dairy",
+        "milk_products": "dairy",
+        "bread": "bakery",
+        "bakery": "bakery",
+        "pasta": "dry",
+        "rice": "dry",
+        "dry_goods": "dry",
+        "juice": "beverages",
+        "beverage": "beverages",
+        "beverages": "beverages",
+        "electronics": "electronics",
+        "electronic": "electronics",
+        "fashion": "fashion",
+        "clothing": "fashion",
+        "clothes": "fashion",
+        "shoes": "fashion",
+    }
+
+    return category_map.get(category_normalized, "unknown")
 
 
 def clean_rules(df):
@@ -58,8 +166,17 @@ def repair_detected_anomalies(df):
 
     fix_counts = {}
     rows_updated = 0
+    
+    # Track existing IDs separately to ensure uniqueness
+    existing_sale_ids = set()
+    existing_order_ids = set()
+    if "sale_id" in df.columns:
+        existing_sale_ids.update(df["sale_id"].dropna().unique())
+    if "order_id" in df.columns:
+        existing_order_ids.update(df["order_id"].dropna().astype(str).unique())
 
-    price_fallback = _safe_positive_median(df["price"], 1.0) if "price" in df.columns else 1.0
+    # Pre-calculate global fallback values
+    price_fallback = _get_hierarchical_median_price(df)
     quantity_fallback = _safe_positive_median(df["quantity"], 1.0) if "quantity" in df.columns else 1.0
 
     product_category_map = {
@@ -91,17 +208,29 @@ def repair_detected_anomalies(df):
     for idx, row in df.iterrows():
         row_changed = False
 
+        # Fix missing sale_id - generate unique ID not used before
         if "sale_id" in df.columns:
             value = row.get("sale_id")
             if pd.isna(value) or str(value).strip().lower() in ["", "none", "nan"]:
-                df.at[idx, "sale_id"] = idx + 1
+                new_id = idx + 1
+                while new_id in existing_sale_ids:
+                    new_id += 1
+                df.at[idx, "sale_id"] = new_id
+                existing_sale_ids.add(new_id)
                 fix_counts["sale_id_generated"] = fix_counts.get("sale_id_generated", 0) + 1
                 row_changed = True
 
+        # Fix missing order_id - generate unique ID not used before
         if "order_id" in df.columns:
             value = str(row.get("order_id")).strip()
             if value.lower() in ["", "none", "nan"]:
-                df.at[idx, "order_id"] = f"ORD{idx + 1:04d}"
+                new_id = f"ORD{idx + 1:04d}"
+                counter = idx + 1
+                while new_id in existing_order_ids:
+                    counter += 1
+                    new_id = f"ORD{counter:04d}"
+                df.at[idx, "order_id"] = new_id
+                existing_order_ids.add(new_id)
                 fix_counts["order_id_generated"] = fix_counts.get("order_id_generated", 0) + 1
                 row_changed = True
 
@@ -112,29 +241,48 @@ def repair_detected_anomalies(df):
                 fix_counts["product_filled"] = fix_counts.get("product_filled", 0) + 1
                 row_changed = True
 
-        if "category" in df.columns and "product" in df.columns:
-            product = str(df.at[idx, "product"]).strip().lower()
-            category = str(row.get("category")).strip().lower()
+        # Enhanced category handling - infer from product and standardize
+        if "category" in df.columns:
+            product_val = df.at[idx, "product"] if "product" in df.columns else None
+            category_val = row.get("category")
+            category_str = str(category_val).strip().lower() if category_val else ""
 
-            correct_category = product_category_map.get(product)
-
-            if correct_category:
-                if category != correct_category:
-                    df.at[idx, "category"] = correct_category
-                    fix_counts["category_corrected"] = fix_counts.get("category_corrected", 0) + 1
-                    row_changed = True
+            # Check if category is missing or invalid
+            if category_str in ["", "none", "nan"]:
+                standardized = _standardize_category("", product_val)
+                df.at[idx, "category"] = standardized
+                fix_counts["category_filled"] = fix_counts.get("category_filled", 0) + 1
+                row_changed = True
             else:
-                if category in ["", "none", "nan"]:
-                    df.at[idx, "category"] = "unknown"
-                    fix_counts["category_filled"] = fix_counts.get("category_filled", 0) + 1
+                # Standardize existing category
+                standardized = _standardize_category(category_val, product_val)
+                if standardized != category_str:
+                    df.at[idx, "category"] = standardized
+                    fix_counts["category_standardized"] = fix_counts.get("category_standardized", 0) + 1
                     row_changed = True
 
+        # Enhanced price handling - hierarchical median (product -> category -> global)
         if "price" in df.columns:
             price_value = pd.to_numeric(df.at[idx, "price"], errors="coerce")
+            product_val = df.at[idx, "product"] if "product" in df.columns else None
+            category_val = df.at[idx, "category"] if "category" in df.columns else None
 
-            if pd.isna(price_value) or price_value <= 0:
-                df.at[idx, "price"] = price_fallback
-                fix_counts["price_fixed"] = fix_counts.get("price_fixed", 0) + 1
+            if pd.isna(price_value):
+                # Get hierarchical median: product-specific, then category, then global
+                hierarchical_price = _get_hierarchical_median_price(df, product_val, category_val)
+                df.at[idx, "price"] = hierarchical_price
+                fix_counts["price_filled_hierarchical"] = fix_counts.get("price_filled_hierarchical", 0) + 1
+                row_changed = True
+            elif price_value < 0:
+                # Handle negative prices by making them positive
+                df.at[idx, "price"] = abs(price_value)
+                fix_counts["price_made_positive"] = fix_counts.get("price_made_positive", 0) + 1
+                row_changed = True
+            elif price_value == 0:
+                # Handle zero prices
+                hierarchical_price = _get_hierarchical_median_price(df, product_val, category_val)
+                df.at[idx, "price"] = hierarchical_price
+                fix_counts["price_zero_replaced"] = fix_counts.get("price_zero_replaced", 0) + 1
                 row_changed = True
 
         if "quantity" in df.columns:
@@ -145,6 +293,7 @@ def repair_detected_anomalies(df):
                 fix_counts["quantity_fixed"] = fix_counts.get("quantity_fixed", 0) + 1
                 row_changed = True
 
+        # Recalculate totals based on corrected price and quantity
         total_col = None
 
         if "total" in df.columns:
@@ -209,12 +358,18 @@ def repair_detected_anomalies(df):
                 fix_counts["email_fixed"] = fix_counts.get("email_fixed", 0) + 1
                 row_changed = True
 
+        # Enhanced date handling - invalid dates become NaT, future dates become NaT
         if "date" in df.columns:
             date_value = pd.to_datetime(df.at[idx, "date"], errors="coerce")
-
+            
             if pd.isna(date_value):
                 df.at[idx, "date"] = pd.NaT
                 fix_counts["date_invalid_to_nat"] = fix_counts.get("date_invalid_to_nat", 0) + 1
+                row_changed = True
+            elif date_value > pd.Timestamp(datetime.now()):
+                # Future date detection - set to NaT
+                df.at[idx, "date"] = pd.NaT
+                fix_counts["date_future_to_nat"] = fix_counts.get("date_future_to_nat", 0) + 1
                 row_changed = True
             else:
                 df.at[idx, "date"] = date_value.date()
@@ -222,12 +377,82 @@ def repair_detected_anomalies(df):
         if row_changed:
             rows_updated += 1
 
+    # Remove exact duplicates
+    original_rows = len(df)
     df = df.drop_duplicates()
+    exact_duplicates_removed = original_rows - len(df)
+    if exact_duplicates_removed > 0:
+        fix_counts["exact_duplicates_removed"] = exact_duplicates_removed
+
+    # Correct duplicate sale_ids
+    if "sale_id" in df.columns:
+        sale_id_counts = df["sale_id"].value_counts()
+        duplicate_sale_ids = sale_id_counts[sale_id_counts > 1]
+        
+        duplicates_corrected = 0
+        for dup_id in duplicate_sale_ids.index:
+            # Get all rows with this duplicate ID
+            dup_indices = df[df["sale_id"] == dup_id].index.tolist()
+            
+            # Keep the first occurrence, fix the rest
+            for i, idx in enumerate(dup_indices[1:], 1):
+                new_id = dup_id
+                if isinstance(dup_id, (int, float)):
+                    new_id = int(dup_id)
+                    while new_id in df["sale_id"].values:
+                        new_id += 1
+                else:
+                    # If string-based, convert to int and increment
+                    new_id = int(float(dup_id)) + i
+                    while new_id in df["sale_id"].values:
+                        new_id += 1
+                
+                df.at[idx, "sale_id"] = new_id
+                duplicates_corrected += 1
+        
+        if duplicates_corrected > 0:
+            fix_counts["duplicate_sale_ids_corrected"] = duplicates_corrected
+
+    # Correct duplicate order_ids
+    if "order_id" in df.columns:
+        order_id_counts = df["order_id"].value_counts()
+        duplicate_order_ids = order_id_counts[order_id_counts > 1]
+        
+        duplicates_corrected = 0
+        for dup_id in duplicate_order_ids.index:
+            # Get all rows with this duplicate ID
+            dup_indices = df[df["order_id"] == dup_id].index.tolist()
+            
+            # Keep the first occurrence, fix the rest
+            for i, idx in enumerate(dup_indices[1:], 1):
+                # Extract number from order_id format (e.g., "ORD0001" -> 1)
+                if isinstance(dup_id, str) and dup_id.upper().startswith("ORD"):
+                    try:
+                        base_num = int(dup_id[3:])
+                    except ValueError:
+                        base_num = i
+                else:
+                    try:
+                        base_num = int(dup_id)
+                    except ValueError:
+                        base_num = i
+                
+                new_num = base_num + i
+                while f"ORD{new_num:04d}" in df["order_id"].values:
+                    new_num += 1
+                
+                new_id = f"ORD{new_num:04d}"
+                df.at[idx, "order_id"] = new_id
+                duplicates_corrected += 1
+        
+        if duplicates_corrected > 0:
+            fix_counts["duplicate_order_ids_corrected"] = duplicates_corrected
 
     return df, {
         "rows_updated": rows_updated,
         "fixes": fix_counts
     }
+
 
 
 def apply_fallback_aggressive_cleaning(df):
@@ -236,6 +461,14 @@ def apply_fallback_aggressive_cleaning(df):
     rows_updated = 0
     fix_counts = {}
 
+    # Track existing IDs separately to ensure uniqueness
+    existing_sale_ids = set()
+    existing_order_ids = set()
+    if "sale_id" in df.columns:
+        existing_sale_ids.update(df["sale_id"].dropna().unique())
+    if "order_id" in df.columns:
+        existing_order_ids.update(df["order_id"].dropna().astype(str).unique())
+
     for idx, row in df.iterrows():
         row_changed = False
 
@@ -243,7 +476,13 @@ def apply_fallback_aggressive_cleaning(df):
             order_id = str(df.at[idx, "order_id"]).strip()
 
             if order_id.lower() in ["", "none", "nan"]:
-                df.at[idx, "order_id"] = f"ORD{idx + 1:04d}"
+                new_id = f"ORD{idx + 1:04d}"
+                counter = idx + 1
+                while new_id in existing_order_ids:
+                    counter += 1
+                    new_id = f"ORD{counter:04d}"
+                df.at[idx, "order_id"] = new_id
+                existing_order_ids.add(new_id)
                 fix_counts["order_id_generated"] = fix_counts.get("order_id_generated", 0) + 1
                 row_changed = True
 
@@ -251,7 +490,11 @@ def apply_fallback_aggressive_cleaning(df):
             sale_id = str(df.at[idx, "sale_id"]).strip()
 
             if sale_id.lower() in ["", "none", "nan"]:
-                df.at[idx, "sale_id"] = idx + 1
+                new_id = idx + 1
+                while new_id in existing_sale_ids:
+                    new_id += 1
+                df.at[idx, "sale_id"] = new_id
+                existing_sale_ids.add(new_id)
                 fix_counts["sale_id_generated"] = fix_counts.get("sale_id_generated", 0) + 1
                 row_changed = True
 

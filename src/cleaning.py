@@ -72,6 +72,37 @@ def _get_hierarchical_median_price(df, product=None, category=None):
 
     return 1.0
 
+def _get_hierarchical_median_quantity(df, product=None, category=None):
+    if "quantity" not in df.columns:
+        return 1.0
+
+    quantities = pd.to_numeric(df["quantity"], errors="coerce")
+    positive_quantities = quantities[quantities > 0]
+
+    if product is not None and "product" in df.columns:
+        product_quantities = pd.to_numeric(
+            df[df["product"].astype(str).str.lower() == str(product).lower()]["quantity"],
+            errors="coerce"
+        )
+        product_positive = product_quantities[product_quantities > 0]
+
+        if not product_positive.empty:
+            return float(product_positive.median())
+
+    if category is not None and "category" in df.columns:
+        category_quantities = pd.to_numeric(
+            df[df["category"].astype(str).str.lower() == str(category).lower()]["quantity"],
+            errors="coerce"
+        )
+        category_positive = category_quantities[category_quantities > 0]
+
+        if not category_positive.empty:
+            return float(category_positive.median())
+
+    if not positive_quantities.empty:
+        return float(positive_quantities.median())
+
+    return 1.0
 
 def _standardize_category(category_str, product_str=None):
     """
@@ -308,9 +339,29 @@ def repair_detected_anomalies(df):
         if "quantity" in df.columns:
             quantity_value = pd.to_numeric(df.at[idx, "quantity"], errors="coerce")
 
-            if pd.isna(quantity_value) or quantity_value <= 0:
-                df.at[idx, "quantity"] = quantity_fallback
-                fix_counts["quantity_fixed"] = fix_counts.get("quantity_fixed", 0) + 1
+            product_val = df.at[idx, "product"] if "product" in df.columns else None
+            category_val = df.at[idx, "category"] if "category" in df.columns else None
+
+            if pd.isna(quantity_value) or quantity_value == 0:
+                hierarchical_quantity = _get_hierarchical_median_quantity(
+                    df,
+                    product_val,
+                    category_val
+                )
+
+                df.at[idx, "quantity"] = hierarchical_quantity
+                fix_counts["quantity_filled_hierarchical"] = fix_counts.get(
+                    "quantity_filled_hierarchical",
+                    0
+                ) + 1
+                row_changed = True
+
+            elif quantity_value < 0:
+                df.at[idx, "quantity"] = abs(quantity_value)
+                fix_counts["quantity_made_positive"] = fix_counts.get(
+                    "quantity_made_positive",
+                    0
+                ) + 1
                 row_changed = True
 
         # Recalculate totals based on corrected price and quantity

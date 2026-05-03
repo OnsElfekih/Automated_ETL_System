@@ -133,7 +133,13 @@ def _standardize_category(category_str, product_str=None):
         "shoes": "fashion",
     }
 
-    return category_map.get(category_normalized, "unknown")
+    if category_normalized in category_map:
+        return category_map[category_normalized]
+
+    if product_str:
+        return product_category_map.get(str(product_str).lower(), "unknown")
+
+    return "unknown"
 
 
 def clean_rules(df):
@@ -245,21 +251,21 @@ def repair_detected_anomalies(df):
         if "category" in df.columns:
             product_val = df.at[idx, "product"] if "product" in df.columns else None
             category_val = row.get("category")
-            category_str = str(category_val).strip().lower() if category_val else ""
 
-            # Check if category is missing or invalid
-            if category_str in ["", "none", "nan"]:
-                standardized = _standardize_category("", product_val)
+            original_category = str(category_val).strip()
+            category_lower = original_category.lower()
+
+            standardized = _standardize_category(category_val, product_val)
+
+            if category_lower in ["", "none", "nan"]:
                 df.at[idx, "category"] = standardized
                 fix_counts["category_filled"] = fix_counts.get("category_filled", 0) + 1
                 row_changed = True
-            else:
-                # Standardize existing category
-                standardized = _standardize_category(category_val, product_val)
-                if standardized != category_str:
-                    df.at[idx, "category"] = standardized
-                    fix_counts["category_standardized"] = fix_counts.get("category_standardized", 0) + 1
-                    row_changed = True
+
+            elif original_category != standardized:
+                df.at[idx, "category"] = standardized
+                fix_counts["category_standardized"] = fix_counts.get("category_standardized", 0) + 1
+                row_changed = True
 
         # Enhanced price handling - hierarchical median (product -> category -> global)
         if "price" in df.columns:

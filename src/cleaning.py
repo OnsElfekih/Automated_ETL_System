@@ -8,6 +8,12 @@ def _normalize_columns(df):
     df.columns = [str(col).strip() for col in df.columns]
     return df
 
+def _standardize_product(product_str):
+    if pd.isna(product_str):
+        return "unknown"
+
+    return str(product_str).strip().lower()
+
 
 def _to_numeric(series):
     return pd.to_numeric(
@@ -241,11 +247,19 @@ def repair_detected_anomalies(df):
                 row_changed = True
 
         if "product" in df.columns:
-            value = str(row.get("product")).strip()
-            if value.lower() in ["", "none", "nan"]:
-                df.at[idx, "product"] = "Unknown"
+            value = row.get("product")
+
+            standardized_product = _standardize_product(value)
+
+            if standardized_product in ["", "none", "nan"]:
+                df.at[idx, "product"] = "unknown"
                 fix_counts["product_filled"] = fix_counts.get("product_filled", 0) + 1
                 row_changed = True
+            else:
+                if str(value).strip() != standardized_product:
+                    df.at[idx, "product"] = standardized_product
+                    fix_counts["product_standardized"] = fix_counts.get("product_standardized", 0) + 1
+                    row_changed = True
 
         # Enhanced category handling - infer from product and standardize
         if "category" in df.columns:
@@ -456,11 +470,15 @@ def repair_detected_anomalies(df):
         
         if duplicates_corrected > 0:
             fix_counts["duplicate_order_ids_corrected"] = duplicates_corrected
+            
+    if "product" in df.columns:
+        df["product"] = df["product"].apply(_standardize_product)
 
     return df, {
         "rows_updated": rows_updated,
         "fixes": fix_counts
     }
+
 
 
 

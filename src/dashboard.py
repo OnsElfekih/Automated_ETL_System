@@ -143,8 +143,6 @@ if 'show_clean_csv' not in st.session_state:
 if st.sidebar.button("👀 Afficher le CSV propre"):
     st.session_state.show_clean_csv = True
 
-if st.sidebar.button("🧹 Masquer le CSV propre"):
-    st.session_state.show_clean_csv = False
 
 if st.sidebar.button("🔄 Recharger les données"):
     st.rerun()

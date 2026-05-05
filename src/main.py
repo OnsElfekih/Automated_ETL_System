@@ -259,4 +259,4 @@ def run_pipeline(file):
 
 
 if __name__ == "__main__":
-    run_pipeline("data/raw/sales_dirty_3.csv")
+    print("Run pipeline from dashboard or watcher")

@@ -190,68 +190,111 @@ def _standardize_city(city_str):
     city_map = {
         "tunis": "tunis",
         "tunis city": "tunis",
+        "Tunis": "tunis",
 
         "ariana": "ariana",
         "aryana": "ariana",
+        "Ariana": "ariana",
 
         "ben arous": "ben arous",
         "benarous": "ben arous",
+        "Ben Arous": "ben arous",
 
         "manouba": "manouba",
         "la manouba": "manouba",
+        "Manouba": "manouba",
 
         "nabeul": "nabeul",
         "nabul": "nabeul",
+        "Nabeul": "nabeul",
+
+        "sfax": "sfax",
+        "safax": "sfax",
+        "Sfax": "sfax",
 
         "zaghouan": "zaghouan",
+        "zaghouan city": "zaghouan",
+        "Zaghouan": "zaghouan",
 
         "bizerte": "bizerte",
         "bizert": "bizerte",
+        "Bizerte": "bizerte",
 
         "beja": "beja",
         "béja": "beja",
+        "Beja": "beja",
+
 
         "jendouba": "jendouba",
+        "jendouba city": "jendouba",
+        "Jendouba": "jendouba",
 
         "kef": "kef",
         "le kef": "kef",
+        "kef city": "kef",
+        "Kef": "kef",
 
         "siliana": "siliana",
+        "silyana": "siliana",
+        "Siliana": "siliana",
 
         "kairouan": "kairouan",
         "kairwan": "kairouan",
+        "Kairouan": "kairouan",
+
+        "mednine": "mednine",
+        "Mednine": "mednine",
+
 
         "kasserine": "kasserine",
+        "kassrine": "kasserine",
+        "Kasserine": "kasserine",
 
         "sidi bouzid": "sidi bouzid",
         "sidibouzid": "sidi bouzid",
+        "sidi bouzid city": "sidi bouzid",
+        "Sidi Bouzid": "sidi bouzid",
 
+        "Sousse": "sousse",
         "sousse": "sousse",
         "soussa": "sousse",
 
         "monastir": "monastir",
         "mestir": "monastir",
+        "Monastir": "monastir",
+
 
         "mahdia": "mahdia",
         "mehdia": "mahdia",
+        "Mahdia" : "mahdia",
+        "Mehdia": "mahdia",
 
         "sfax": "sfax",
         "safax": "sfax",
+        "Sfax": "sfax",
 
         "gabes": "gabes",
         "gabès": "gabes",
+        "Gabes": "gabes",
 
         "medenine": "medenine",
         "médenine": "medenine",
+        "Medenine": "medenine",
 
         "tataouine": "tataouine",
+        "tatawin": "tataouine",
+        "Tataouine": "tataouine",
 
         "gafsa": "gafsa",
+        "gafssa": "gafsa",
+        "Gafsa": "gafsa",
 
         "tozeur": "tozeur",
+        "Tozeur": "tozeur",
 
         "kebili": "kebili",
         "kébili": "kebili",
+        "Kebili": "kebili",
     }
 
     return city_map.get(city, city)

@@ -110,21 +110,7 @@ if os.path.exists('data/raw'):
                         # Run pipeline
                         run_pipeline(filepath)
                         
-                        # Archive the file
-                        from pathlib import Path
-                        archive_dir = Path('data/raw/processed_files')
-                        archive_dir.mkdir(parents=True, exist_ok=True)
-                        
-                        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-                        name, ext = os.path.splitext(filename)
-                        archived_name = f"{name}_{timestamp}{ext}"
-                        archived_path = archive_dir / archived_name
-                        
-                        import shutil
-                        shutil.move(filepath, str(archived_path))
-                        
                         st.sidebar.success(f"✅ Processed: {filename}")
-                        st.sidebar.success(f"📦 Archived to: {archived_name}")
                         
                         # Trigger refresh
                         st.rerun()

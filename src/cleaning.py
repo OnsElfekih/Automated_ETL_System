@@ -178,6 +178,121 @@ def _standardize_category(category_str, product_str=None):
 
     return "unknown"
 
+def _standardize_city(city_str):
+    if pd.isna(city_str):
+        return "unknown city"
+
+    city = str(city_str).strip().lower()
+
+    if city in ["", "none", "nan", "unknown"]:
+        return "unknown city"
+
+    city_map = {
+        "tunis": "tunis",
+        "tunis city": "tunis",
+
+        "ariana": "ariana",
+        "aryana": "ariana",
+
+        "ben arous": "ben arous",
+        "benarous": "ben arous",
+
+        "manouba": "manouba",
+        "la manouba": "manouba",
+
+        "nabeul": "nabeul",
+        "nabul": "nabeul",
+
+        "zaghouan": "zaghouan",
+
+        "bizerte": "bizerte",
+        "bizert": "bizerte",
+
+        "beja": "beja",
+        "béja": "beja",
+
+        "jendouba": "jendouba",
+
+        "kef": "kef",
+        "le kef": "kef",
+
+        "siliana": "siliana",
+
+        "kairouan": "kairouan",
+        "kairwan": "kairouan",
+
+        "kasserine": "kasserine",
+
+        "sidi bouzid": "sidi bouzid",
+        "sidibouzid": "sidi bouzid",
+
+        "sousse": "sousse",
+        "soussa": "sousse",
+
+        "monastir": "monastir",
+        "mestir": "monastir",
+
+        "mahdia": "mahdia",
+        "mehdia": "mahdia",
+
+        "sfax": "sfax",
+        "safax": "sfax",
+
+        "gabes": "gabes",
+        "gabès": "gabes",
+
+        "medenine": "medenine",
+        "médenine": "medenine",
+
+        "tataouine": "tataouine",
+
+        "gafsa": "gafsa",
+
+        "tozeur": "tozeur",
+
+        "kebili": "kebili",
+        "kébili": "kebili",
+    }
+
+    return city_map.get(city, city)
+def _standardize_store(store_str):
+    if pd.isna(store_str):
+        return "unknown store"
+
+    store = str(store_str).strip().lower()
+
+    if store in ["", "none", "nan", "unknown"]:
+        return "unknown store"
+
+    store_map = {
+        "carrefour": "carrefour",
+        "carrefour market": "carrefour",
+        "carrefour express": "carrefour",
+
+        "monoprix": "monoprix",
+        "monoprix tunis": "monoprix",
+
+        "mg": "mg",
+        "mg market": "mg",
+
+        "geant": "geant",
+        "geant casino": "geant",
+
+        "aziza": "aziza",
+        "aziza market": "aziza",
+
+        "magasin general": "magasin general",
+        "magasin général": "magasin general",
+
+        "bim": "bim",
+
+        "exist": "exist",
+
+        "promogros": "promogros",
+        "promogro": "promogros"
+    }
+
+    return store_map.get(store, store)
 
 def clean_rules(df):
     df = _normalize_columns(df)
@@ -217,6 +332,9 @@ def repair_detected_anomalies(df):
         existing_sale_ids.update(df["sale_id"].dropna().unique())
     if "order_id" in df.columns:
         existing_order_ids.update(df["order_id"].dropna().astype(str).unique())
+    
+    if "city" in df.columns:
+        df["city"] = df["city"].apply(_standardize_city)
 
     # Pre-calculate global fallback values
     price_fallback = _get_hierarchical_median_price(df)
@@ -386,17 +504,31 @@ def repair_detected_anomalies(df):
                     row_changed = True
 
         if "store" in df.columns:
-            value = str(row.get("store")).strip()
-            if value.lower() in ["", "none", "nan"]:
-                df.at[idx, "store"] = "Unknown Store"
+            value = row.get("store")
+            standardized_store = _standardize_store(value)
+
+            if standardized_store == "unknown store":
+                df.at[idx, "store"] = standardized_store
                 fix_counts["store_filled"] = fix_counts.get("store_filled", 0) + 1
                 row_changed = True
 
+        elif str(value).strip().lower() != standardized_store:
+            df.at[idx, "store"] = standardized_store
+            fix_counts["store_standardized"] = fix_counts.get("store_standardized", 0) + 1
+            row_changed = True
+
         if "city" in df.columns:
-            value = str(row.get("city")).strip()
-            if value.lower() in ["", "none", "nan"]:
-                df.at[idx, "city"] = "Unknown City"
+            value = row.get("city")
+            standardized_city = _standardize_city(value)
+
+            if standardized_city == "unknown city":
+                df.at[idx, "city"] = standardized_city
                 fix_counts["city_filled"] = fix_counts.get("city_filled", 0) + 1
+                row_changed = True
+
+            elif str(value).strip().lower() != standardized_city:
+                df.at[idx, "city"] = standardized_city
+                fix_counts["city_standardized"] = fix_counts.get("city_standardized", 0) + 1
                 row_changed = True
 
         if "payment_method" in df.columns:
@@ -524,6 +656,9 @@ def repair_detected_anomalies(df):
             
     if "product" in df.columns:
         df["product"] = df["product"].apply(_standardize_product)
+    
+    if "store" in df.columns:
+        df["store"] = df["store"].apply(_standardize_store)
 
     return df, {
         "rows_updated": rows_updated,
